@@ -12,6 +12,7 @@ import {
 } from '../db';
 import { emit } from '../events';
 import { enqueue } from '../pipeline/queue';
+import { enqueueMissingReferences } from '../pipeline/references';
 import { withStatusUrl } from '../pipeline/wait';
 import { checkStoryboard, rememberResponse, rememberedResponse, storyboardEnvFrom, writeStoryboard, type StoryboardEnv } from '../storyboard';
 
@@ -20,11 +21,14 @@ import { currentVideoModel, getSystemInfo, isEngineAvailable, isVoiceReady } fro
 import { queueLine, queueProjectVoices } from '../voice/lines';
 import { aimCamera, completeBlocking, defaultLocationMap, placeCamera } from '../../shared/camera';
 import { generateBreakdown, applyBreakdown } from '../ai/breakdown';
+import { generateScript } from '../ai/script';
+import { isLlmConfigured } from '../ai/llm';
+import { queueAutopilot } from '../pipeline/autopilot';
 import { previsShotDurations } from '../pipeline/previs';
 import { sceneCastIds } from '../pipeline/reference_sheet';
 import { parsePrevisSequences, previsCutsFromShots } from '../../shared/previs';
 import type { ComfyClient } from '../comfy/client';
-import type { BreakdownDraft, Character, ID, Job, Project, ProjectDetail, Scene, Shot } from '../../shared/types';
+import type { BreakdownDraft, Character, ID, Job, ProjectDetail, Scene, Shot } from '../../shared/types';
 import { aspectError } from '../../shared/presets';
 
 /** Recomputes and persists every shot's durationSec from the scene's previsCuts (see docs on Scene.previsCuts):
@@ -54,28 +58,6 @@ function reaimed(shot: Shot, sceneBlocking: Scene['blocking'], locationId: ID | 
   if (!shot.camera.auto) return undefined;
   const map = (locationId ? locationsRepo.get(locationId)?.map : undefined) ?? defaultLocationMap();
   return aimCamera(shot.camera, completeBlocking(shot.blocking ?? sceneBlocking, shot.characterIds, map), shot.shotSize, map);
-}
-
-/** Jobs that give keyframes consistent faces and places: a reference sheet for each character in these
- *  shots and an establishing image for each location, when missing and not already queued. Keyframes
- *  only use them when Qwen-Image-Edit can compose (see computeMode in prompts.ts). */
-function enqueueMissingReferences(project: Project, shots: Shot[]): Job[] {
-  const active = jobsRepo.list({ active: true });
-  const queued = (type: Job['type'], key: string, id: ID) => active.some((j) => j.type === type && j.params[key] === id);
-  const jobs: Job[] = [];
-  for (const id of new Set(shots.flatMap((s) => s.characterIds))) {
-    const c = charactersRepo.get(id);
-    if (!c || c.referenceAssetIds.length > 0 || queued('character_refs', 'characterId', id)) continue;
-    jobs.push(enqueue({ type: 'character_refs', title: `Reference sheet: ${c.name}`, params: { characterId: id, count: 2, aspect: '1:1' }, projectId: project.id }));
-  }
-  const sceneIds = new Set(shots.map((s) => s.sceneId));
-  const locationIds = scenesRepo.listByProject(project.id).filter((s) => sceneIds.has(s.id) && s.locationId).map((s) => s.locationId!);
-  for (const id of new Set(locationIds)) {
-    const l = locationsRepo.get(id);
-    if (!l || l.establishingAssetId || queued('location_establishing', 'locationId', id)) continue;
-    jobs.push(enqueue({ type: 'location_establishing', title: `Establishing shot: ${l.name}`, params: { locationId: id, aspect: project.aspect }, projectId: project.id }));
-  }
-  return jobs;
 }
 
 function projectDetail(projectId: ID): ProjectDetail | undefined {
@@ -158,7 +140,7 @@ export function projectsRoutes(comfy: ComfyClient) {
 
   app.patch('/api/scenes/:id', async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    for (const field of ['previsAssetId', 'previsDepthAssetId', 'referenceSheetAssetId', 'referenceSheetText'] as const) {
+    for (const field of ['previsAssetId', 'previsDepthAssetId', 'referenceSheetAssetId', 'referenceSheetText', 'conceptAssetId'] as const) {
       if (body[field] !== undefined && body[field] !== null && typeof body[field] !== 'string') {
         return c.json({ error: `${field} must be a string (got ${JSON.stringify(body[field])})` }, 400);
       }
@@ -264,6 +246,29 @@ export function projectsRoutes(comfy: ComfyClient) {
     const scene = scenesRepo.get(c.req.param('id'));
     if (!scene) return c.json({ error: 'not found' }, 404);
     const job = enqueue({ type: 'scene_reference_sheet', title: `Reference sheet: ${scene.title}`, params: { sceneId: scene.id }, projectId: scene.projectId });
+    return c.json(withStatusUrl(job), 202);
+  });
+
+  /** Render (or re-render) the scene's concept/establishing still — the storyboard cover and keyframe anchor. */
+  app.post('/api/scenes/:id/concept', (c) => {
+    const scene = scenesRepo.get(c.req.param('id'));
+    if (!scene) return c.json({ error: 'not found' }, 404);
+    const job = enqueue({ type: 'scene_concept', title: `Scene still: ${scene.title}`, params: { sceneId: scene.id }, projectId: scene.projectId });
+    return c.json(withStatusUrl(job), 202);
+  });
+
+  /** One prompt → the whole storyboard, a concept still per scene, and every shot keyframe (then pause). */
+  app.post('/api/projects/:id/autopilot', async (c) => {
+    const project = projectsRepo.get(c.req.param('id'));
+    if (!project) return c.json({ error: 'not found' }, 404);
+    if (!isLlmConfigured()) return c.json({ error: 'Connect an AI provider in Settings first' }, 400);
+    const body = await c.req.json().catch(() => ({}));
+    if (body.script !== undefined && typeof body.script !== 'string') {
+      return c.json({ error: 'script must be a string' }, 400);
+    }
+    const script = (body.script ?? project.script ?? '').trim();
+    if (!script) return c.json({ error: 'Give the film an idea or script first' }, 400);
+    const job = queueAutopilot(project, script);
     return c.json(withStatusUrl(job), 202);
   });
 
@@ -511,6 +516,30 @@ export function projectsRoutes(comfy: ComfyClient) {
   async function storyboardEnv(): Promise<StoryboardEnv> {
     return storyboardEnvFrom(await getSystemInfo(comfy));
   }
+
+  /** Turn a quick idea into a full, editable screenplay (the Script tab's Quick prompt). */
+  app.post('/api/projects/:id/script', async (c) => {
+    const project = projectsRepo.get(c.req.param('id'));
+    if (!project) return c.json({ error: 'not found' }, 404);
+    if (!isLlmConfigured()) return c.json({ error: 'Connect an AI provider in Settings first' }, 400);
+    const body = await c.req.json().catch(() => ({}));
+    if (typeof body.prompt !== 'string' || !body.prompt.trim()) {
+      return c.json({ error: 'Give the AI a quick prompt first' }, 400);
+    }
+    try {
+      const draft = await generateScript({
+        prompt: body.prompt,
+        name: project.name,
+        logline: project.logline,
+        aspect: project.aspect,
+      });
+      const updated = projectsRepo.update(project.id, { script: draft.script });
+      if (!updated) return c.json({ error: 'not found' }, 404);
+      return c.json(updated);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 502);
+    }
+  });
 
   app.post('/api/projects/:id/breakdown', async (c) => {
     const projectId = c.req.param('id');

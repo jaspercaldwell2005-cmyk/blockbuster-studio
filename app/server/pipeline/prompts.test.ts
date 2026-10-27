@@ -111,6 +111,18 @@ describe('computeMode', () => {
     expect(computeMode(ctx)).toBe('generate');
   });
 
+  it('composes from the scene concept even without a location establishing image', () => {
+    const ctx: ShotContext = {
+      project: baseProject(),
+      scene: baseScene({ locationId: undefined, conceptAssetId: 'concept1' }),
+      shot: baseShot(),
+      location: undefined,
+      characters: [baseCharacter()],
+      editEngineAvailable: true,
+    };
+    expect(computeMode(ctx)).toBe('compose');
+  });
+
   it('falls back to generate when the edit engine is unavailable', () => {
     const ctx: ShotContext = {
       project: baseProject(),

@@ -101,6 +101,8 @@ export type JobType =
   | 'character_face' //       Z-Image 1:1 head-and-shoulders close-up on the same grey (person only)
   | 'character_build' //      the character builder: from one chosen look, make the sheets, a varied training set and (optionally) the LoRA
   | 'scene_reference_sheet' // composites the scene's characters/props/location into one Ingredients sheet
+  | 'scene_concept' //       one establishing still per scene (storyboard cover, keyframe anchor)
+  | 'autopilot' //           one prompt → breakdown → scene concepts → shot keyframes
   | 'shot_keyframe'
   | 'shot_video'
   | 'project_export'
@@ -454,6 +456,9 @@ export interface Scene {
   /** The two-part LTX Ingredients prompt's "Reference sheet: …" panel description, auto-written by
    *  scene_reference_sheet from each panel's position, and editable afterwards. */
   referenceSheetText?: string;
+  /** The scene's concept/establishing still (an image asset): the storyboard cover and the visual anchor
+   *  shot keyframes compose from, so every shot in a scene keeps the same place, light and cast. */
+  conceptAssetId?: ID;
   /** The scene's Blender previs playblast (a video asset): drives camera/timing for every shot in it. */
   previsAssetId?: ID;
   /** Optional depth pass of the same previs (near = bright); preferred over previsAssetId itself as the LTX
@@ -567,18 +572,63 @@ export interface AgentAccess {
   path?: string;
 }
 
-export type LlmProvider = 'none' | 'anthropic' | 'openai_compatible';
+export type LlmProvider = 'none' | 'anthropic' | 'openai_compatible' | 'opencode';
 
 export interface Settings {
   llmProvider: LlmProvider;
   anthropicModel: string; // default "claude-sonnet-5"
-  openaiBaseUrl: string; // e.g. https://openrouter.ai/api/v1
+  /** Full OpenAI-compatible URL, e.g. http://127.0.0.1:8888/v1 or https://openrouter.ai/api/v1 */
+  openaiBaseUrl: string;
+  /** The editable host/port fields behind `openaiBaseUrl` (shown in Settings). */
+  openaiHost: string;
+  openaiPort: string;
   openaiModel: string;
+  /** The chosen OpenCode model id (provider `opencode`). OpenCode owns the account credential. */
+  opencodeModel: string;
   /** Write-only secrets: the server returns `true` if set, never the value. */
   anthropicApiKeySet: boolean;
   openaiApiKeySet: boolean;
   civitaiTokenSet: boolean;
   hfTokenSet: boolean;
+}
+
+/** POST /api/ai/models: the models an OpenAI-compatible server lists. */
+export interface LlmModelsResult {
+  baseUrl: string;
+  models: string[];
+  /** Model ids the server reports as currently loaded (empty when it doesn't expose that). */
+  loadedModels: string[];
+}
+
+/** POST /api/ai/test: one small chat completion against the configured endpoint. */
+export interface LlmTestResult {
+  baseUrl: string;
+  model: string;
+  latencyMs: number;
+  reply: string;
+}
+
+/** GET /api/ai/opencode/status: the embedded OpenCode host's account and model catalog. */
+export interface OpenCodeStatus {
+  ready: boolean;
+  connected: boolean;
+  account?: string;
+  models: Array<{ id: string; name: string }>;
+}
+
+/** POST /api/ai/opencode/connect: a browser device-code sign-in attempt. */
+export interface OpenCodeSignIn {
+  attemptID: string;
+  url: string;
+  instructions: string;
+  expires: number;
+}
+
+/** GET /api/ai/opencode/connect/:attemptID. */
+export interface OpenCodeSignInStatus {
+  status: 'pending' | 'complete' | 'failed' | 'expired';
+  message?: string;
+  connected: boolean;
 }
 
 export type SettingsUpdate = Partial<

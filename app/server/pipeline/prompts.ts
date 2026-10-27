@@ -56,7 +56,8 @@ function blockingFor(ctx: ShotContext): CharacterMark[] {
 
 export function computeMode(ctx: ShotContext): 'compose' | 'generate' {
   if (ctx.shot.keyframeMode === 'compose' || ctx.shot.keyframeMode === 'generate') return ctx.shot.keyframeMode;
-  return ctx.location?.establishingAssetId && ctx.editEngineAvailable ? 'compose' : 'generate';
+  // A scene concept still is the anchor when present (one look per scene); otherwise the location plate.
+  return (ctx.scene.conceptAssetId || ctx.location?.establishingAssetId) && ctx.editEngineAvailable ? 'compose' : 'generate';
 }
 
 const SCREEN_X_PHRASE: Record<ScreenPlacement['screenX'], string> = {

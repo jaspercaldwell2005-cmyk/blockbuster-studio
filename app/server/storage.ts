@@ -22,6 +22,7 @@ export function referencedAssetIds(): Set<ID> {
     add(project.coverAssetId);
     add(project.exportAssetId);
     for (const scene of scenes.listByProject(project.id)) {
+      add(scene.conceptAssetId);
       add(scene.referenceSheetAssetId);
       add(scene.previsAssetId);
       add(scene.previsDepthAssetId);

@@ -13,17 +13,25 @@ GPU ?= all
 # Extra docker flags, e.g. DOCKER_ENV="-e DOWNLOAD_UPSCALE_MODELS=true"
 DOCKER_ENV ?=
 # 1 = serve the web build from this checkout (dist/web) instead of the one baked into the image.
-# `make container-dev` sets this for you; pair it with `make dev-web-watch`.
+# `make container-dev-static` sets this for you; pair it with `make dev-web-watch`.
 WEB_MOUNT ?= 0
 WEB_MOUNT_FLAG = $(if $(filter 1,$(WEB_MOUNT)),-v "$(CURDIR)/dist/web:/opt/studio/dist/web:ro")
+# 1 = let the container reach a service on the host at host.docker.internal (e.g. an LLM on port 8888).
+HOST_GATEWAY ?= 1
+HOST_GATEWAY_FLAG = $(if $(filter 1,$(HOST_GATEWAY)),--add-host=host.docker.internal:host-gateway)
+# WSL2 only: `make llm-relay` forwards a Windows-loopback LLM into Docker on this port.
+LLM_RELAY_PORT ?= 8889
+LLM_TARGET_PORT ?= 8888
+LLM_TARGET_HOST ?= 127.0.0.1
 # Everything between `docker run` and the image name except -p (the port is resolved at run time);
 # DOCKER_ENV passes extra -e flags.
-CONTAINER_FLAGS = -v "$(WORKSPACE):/workspace" $(WEB_MOUNT_FLAG) $(DOCKER_ENV)
+CONTAINER_FLAGS = -v "$(WORKSPACE):/workspace" $(WEB_MOUNT_FLAG) $(HOST_GATEWAY_FLAG) $(DOCKER_ENV)
 
 .PHONY: help \
-	container-check container-pull container-up container-dev container-start container-stop \
+	container-check container-pull container-up container-dev container-dev-static container-start container-stop \
 	container-restart container-logs container-shell container-status container-update container-remove open \
-	install dev dev-mock dev-tts dev-server dev-web dev-web-watch dev-web-container \
+	db-clear media-clear reset-data \
+	install dev dev-mock dev-tts dev-server dev-web dev-web-watch dev-web-container llm-relay \
 	build build-web build-server start test typecheck check validate-workflows clean
 
 help: ## Show this help
@@ -32,7 +40,7 @@ help: ## Show this help
 		/^##@/ {printf "\n\033[1m%s\033[0m\n", substr($$0, 5)} \
 		/^[a-zA-Z0-9_-]+:.*## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo
-	@echo "Overrides: NPM=... · IMAGE=... · WORKSPACE=... · STUDIO_PORT=... · DOCKER_ENV=\"-e KEY=value\""
+	@echo "Overrides: NPM=... · IMAGE=... · WORKSPACE=... · STUDIO_PORT=... · DOCKER_ENV=\"-e KEY=value\" · HOST_GATEWAY=0 disables host.docker.internal · LLM_RELAY_PORT=8889 forwards a Windows-loopback LLM · YES=1 skips confirmations"
 	@echo "Env vars pass through for dev: MOCK_DELAY_MS=0 make dev"
 
 ##@ Full studio in Docker (own GPU, e.g. RTX 5090)
@@ -97,7 +105,16 @@ container-up: ## Create or recreate the studio container (keeps /workspace data;
 		echo "Models (~128 GB) download in the background; follow them with: make container-logs"; \
 	fi
 
-container-dev: ## Recreate the container with this checkout's web build mounted (frontend edits, no image rebuild)
+container-dev: ## Start the studio container and Vite hot reload in one terminal
+	@image='$(IMAGE)'; \
+	if [ "$(origin IMAGE)" = "file" ]; then \
+		image="$$(docker inspect -f '{{.Config.Image}}' $(CONTAINER) 2>/dev/null || echo '$(IMAGE)')"; \
+	fi; \
+	$(MAKE) --no-print-directory container-up WEB_MOUNT=0 IMAGE="$$image"
+	@echo "Frontend: hot reload on http://localhost:5174 (saving web/src updates the page)"
+	@$(MAKE) --no-print-directory dev-web-container
+
+container-dev-static: ## Recreate the container with this checkout's dist/web mounted (pair with make dev-web-watch)
 	@$(MAKE) --no-print-directory container-up WEB_MOUNT=1
 
 
@@ -144,6 +161,41 @@ container-update: container-pull ## Pull the latest image and recreate the conta
 container-remove: ## Delete the container (keeps the WORKSPACE folder on disk)
 	docker rm -f $(CONTAINER)
 
+##@ Studio data (destructive; they ask first, or pass YES=1)
+
+db-clear: ## Delete the studio database (backs it up; keeps password, models and media)
+	@if [ "$(YES)" != "1" ]; then printf "%s [y/N] " "Delete the studio database? Projects, cast, jobs and saved settings are lost."; read answer; case "$$answer" in y|Y|yes|YES) ;; *) echo "Cancelled."; exit 1;; esac; fi
+	@running=$$(docker inspect -f '{{.State.Running}}' $(CONTAINER) 2>/dev/null || echo missing); \
+	img=$$(docker inspect -f '{{.Config.Image}}' $(CONTAINER) 2>/dev/null || echo $(IMAGE)); \
+	stamp=$$(date +%Y%m%d-%H%M%S); \
+	if [ "$$running" = "true" ]; then docker stop $(CONTAINER) >/dev/null; fi; \
+	docker run --rm -v "$(WORKSPACE):/workspace" --entrypoint sh "$$img" -c "set -e; \
+		mkdir -p /workspace/studio/db-backups; \
+		if [ -f /workspace/studio/studio.db ]; then \
+			cp /workspace/studio/studio.db /workspace/studio/db-backups/studio-$$stamp.db; \
+			if [ -f /workspace/studio/studio.db-wal ]; then cp /workspace/studio/studio.db-wal /workspace/studio/db-backups/studio-$$stamp.db-wal; fi; \
+		fi; \
+		rm -f /workspace/studio/studio.db /workspace/studio/studio.db-wal /workspace/studio/studio.db-shm"; \
+	echo "Database backup: $(WORKSPACE)/studio/db-backups/studio-$$stamp.db"; \
+	if [ "$$running" = "true" ]; then docker start $(CONTAINER) >/dev/null && echo "Database cleared; the studio restarted with a fresh one."; else echo "Database cleared."; fi
+
+media-clear: ## Delete every generated image, clip and film (keeps the database)
+	@if [ "$(YES)" != "1" ]; then printf "%s [y/N] " "Delete every generated image, clip and film? This cannot be undone."; read answer; case "$$answer" in y|Y|yes|YES) ;; *) echo "Cancelled."; exit 1;; esac; fi
+	@running=$$(docker inspect -f '{{.State.Running}}' $(CONTAINER) 2>/dev/null || echo missing); \
+	img=$$(docker inspect -f '{{.Config.Image}}' $(CONTAINER) 2>/dev/null || echo $(IMAGE)); \
+	if [ "$$running" = "true" ]; then \
+		docker exec $(CONTAINER) sh -c 'find /workspace/studio/media -mindepth 1 -delete'; \
+	else \
+		docker run --rm -v "$(WORKSPACE):/workspace" --entrypoint sh "$$img" -c 'find /workspace/studio/media -mindepth 1 -delete'; \
+	fi; \
+	echo "Media folder cleared: $(WORKSPACE)/studio/media"
+
+reset-data: ## Clear the database AND every generated file (asks once; backs up the database)
+	@if [ "$(YES)" != "1" ]; then printf "%s [y/N] " "Clear the database and every generated image, clip and film? The database is backed up first."; read answer; case "$$answer" in y|Y|yes|YES) ;; *) echo "Cancelled."; exit 1;; esac; fi
+	@$(MAKE) --no-print-directory db-clear YES=1
+	@$(MAKE) --no-print-directory media-clear YES=1
+	@echo "Studio data reset. The password, models and logs were kept."
+
 ##@ Local development (no GPU)
 
 install: ## Install dependencies
@@ -164,13 +216,26 @@ dev-server: ## Run only the API server with reload (port 3000)
 dev-web: ## Run only the Vite web app (port 5173)
 	$(NPM) run dev:web
 
-dev-web-watch: ## Rebuild dist/web on every save, for a container started with `make container-dev`
+dev-web-watch: ## Rebuild dist/web on every save, for `make container-dev-static`
 	$(NPM) run build:web:watch
 
 # Real hot-module reload against a running container: Vite on 5174, /api proxied to the container's port.
-# Use this instead of `container-dev` when you want the page to update without refreshing.
-dev-web-container: ## Vite with HMR (port 5174) proxying /api to the studio container
-	VITE_PROXY_TARGET=http://127.0.0.1:$(STUDIO_PORT) $(NPM) run dev:web -- --port 5174
+# `make container-dev` runs this for you after starting the container.
+dev-web-container: ## Vite with HMR (port 5174) proxying /api to the running studio container
+	@if [ "$$(docker inspect -f '{{.State.Running}}' $(CONTAINER) 2>/dev/null)" != "true" ]; then \
+		echo "The studio container isn't running. Start it with 'make container-start' or 'make container-dev'."; exit 1; \
+	fi; \
+	port="$$(docker inspect -f '{{with (index .HostConfig.PortBindings "3000/tcp")}}{{(index . 0).HostPort}}{{end}}' $(CONTAINER) 2>/dev/null)"; \
+	[ -n "$$port" ] || port='$(STUDIO_PORT)'; \
+	echo "HMR: http://localhost:5174  (API proxied to http://localhost:$$port)"; \
+	VITE_PROXY_TARGET=http://127.0.0.1:$$port $(NPM) run dev:web -- --port 5174 --strictPort
+
+# WSL2 mirrored networking: a Windows app on 127.0.0.1 isn't reachable from Docker, and WSL can't
+# rebind the same port. This proxy listens on LLM_RELAY_PORT and forwards to LLM_TARGET_PORT.
+llm-relay: ## WSL2: expose an LLM on Windows loopback to the container (use LLM_RELAY_PORT in Settings)
+	@echo "LLM relay: use port $(LLM_RELAY_PORT) in Settings → AI provider (Ctrl-C stops it)."
+	@LLM_RELAY_PORT=$(LLM_RELAY_PORT) LLM_TARGET_PORT=$(LLM_TARGET_PORT) LLM_TARGET_HOST=$(LLM_TARGET_HOST) \
+		node scripts/llm-relay.mjs
 
 build: ## Build the web app and the server bundle
 	$(NPM) run build

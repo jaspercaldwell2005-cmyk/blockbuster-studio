@@ -171,6 +171,16 @@ describe('pickNext (model-affinity scheduling)', () => {
     const q = [mk('old', 'shot_video'), mk('new', 'generate', { engine: 'zimage' })];
     expect(pickNext(q, 'zimage', new Map([['old', 4]]))?.id).toBe('old');
   });
+
+  it('keeps a one-prompt chain in FIFO order even when a later job matches the loaded engine', async () => {
+    const { pickNext } = await import('./queue');
+    const q = [
+      mk('refs', 'character_refs', { chainId: 'run' }),
+      mk('concept', 'scene_concept', { chainId: 'run' }),
+      mk('keyframe', 'shot_keyframe', { chainId: 'run' }, 's1'),
+    ];
+    expect(pickNext(q, 'qwen', new Map())?.id).toBe('refs');
+  });
 });
 
 describe('GPU handoff between ComfyUI and the voice sidecar', () => {

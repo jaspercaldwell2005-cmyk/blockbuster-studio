@@ -6,6 +6,8 @@ import './character_refs';
 import './character_sheets';
 import './character_build';
 import './reference_sheet';
+import './scene_concept';
+import './autopilot';
 import './shot_keyframe';
 import './shot_video';
 import './project_export';

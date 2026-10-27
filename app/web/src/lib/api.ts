@@ -17,6 +17,11 @@ import type {
   Paged,
   Project,
   ProjectDetail,
+  LlmModelsResult,
+  LlmTestResult,
+  OpenCodeSignIn,
+  OpenCodeSignInStatus,
+  OpenCodeStatus,
   Scene,
   Settings,
   SettingsUpdate,
@@ -92,6 +97,17 @@ export const api = {
   system: () => request<SystemInfo>('GET', '/api/system'),
   settings: () => request<Settings>('GET', '/api/settings'),
   updateSettings: (body: SettingsUpdate) => request<Settings>('PUT', '/api/settings', body),
+  llmModels: (body: { baseUrl?: string; host?: string; port?: string; apiKey?: string }) =>
+    request<LlmModelsResult>('POST', '/api/ai/models', body),
+  llmTest: (body: { baseUrl?: string; host?: string; port?: string; apiKey?: string; model: string }) =>
+    request<LlmTestResult>('POST', '/api/ai/test', body),
+  openCodeStatus: () => request<OpenCodeStatus>('GET', '/api/ai/opencode/status'),
+  openCodeConnect: () => request<OpenCodeSignIn>('POST', '/api/ai/opencode/connect'),
+  openCodeConnectStatus: (attemptID: string) =>
+    request<OpenCodeSignInStatus>('GET', `/api/ai/opencode/connect/${encodeURIComponent(attemptID)}`),
+  openCodeDisconnect: () => request<{ ok: true }>('POST', '/api/ai/opencode/disconnect'),
+  openCodeTest: (model: string) =>
+    request<{ model: string; latencyMs: number; reply: string }>('POST', '/api/ai/opencode/test', { model }),
   diagnostics: () => request<Diagnostics>('GET', '/api/diagnostics'),
   diagnosticsLogsUrl: '/api/diagnostics/logs',
   storage: () => request<StorageUsage>('GET', '/api/storage'),
@@ -189,6 +205,7 @@ export const api = {
   updateScene: (id: ID, body: Partial<Scene>) => request<Scene>('PATCH', `/api/scenes/${id}`, body),
   deleteScene: (id: ID) => request<{ ok: true }>('DELETE', `/api/scenes/${id}`),
   sceneReferenceSheet: (id: ID) => request<Job>('POST', `/api/scenes/${id}/reference-sheet`),
+  sceneConcept: (id: ID) => request<Job>('POST', `/api/scenes/${id}/concept`),
   reorderScenes: (projectId: ID, sceneIds: ID[]) => request<ProjectDetail>('POST', `/api/projects/${projectId}/scenes/reorder`, { sceneIds }),
   importPrevisSequences: (sceneId: ID, sequences: unknown, sequence?: number) =>
     request<{ scene: Scene; shots: Shot[] }>('POST', `/api/scenes/${sceneId}/previs/import`, { sequences, sequence }),
@@ -216,9 +233,11 @@ export const api = {
   renderProject: (id: ID, body: { what: 'keyframes' | 'videos' | 'all'; onlyMissing?: boolean; sceneId?: ID }) =>
     request<Job[]>('POST', `/api/projects/${id}/render`, body),
   exportProject: (id: ID) => request<Job>('POST', `/api/projects/${id}/export`),
+  autopilot: (id: ID, body?: { script?: string }) => request<Job>('POST', `/api/projects/${id}/autopilot`, body ?? {}),
   projectVoices: (id: ID) => request<{ jobIds: ID[]; voiceJobs: number; lineJobs: number; needsVoice: string[] }>('POST', `/api/projects/${id}/voices`),
   shotLine: (id: ID) => request<Job>('POST', `/api/shots/${id}/line`),
   breakdown: (id: ID, script: string) => request<BreakdownDraft>('POST', `/api/projects/${id}/breakdown`, { script }),
+  writeScript: (id: ID, prompt: string) => request<Project>('POST', `/api/projects/${id}/script`, { prompt }),
   applyBreakdown: (id: ID, draft: BreakdownDraft) => request<ProjectDetail>('POST', `/api/projects/${id}/breakdown/apply`, draft),
 
   // Bulk downloads

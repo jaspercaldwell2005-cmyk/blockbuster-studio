@@ -93,6 +93,7 @@ function projectEntries(projectId: ID): { name: string; entries: ZipEntry[] } | 
   const storyboard = scenes.map((scene, si) => {
     const dir = `${pad2(si + 1)}-${slug(scene.title || `scene-${si + 1}`)}`;
     if (scene.locationId) locationIds.add(scene.locationId);
+    add(scene.conceptAssetId, `${dir}/scene-concept`);
     const shots = shotsRepo.listByScene(scene.id);
     shots.forEach((shot, hi) => {
       const base = `${dir}/shot-${pad2(hi + 1)}`;

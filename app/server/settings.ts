@@ -11,6 +11,7 @@ import {
   OPENAI_BASE_URL,
   OPENAI_MODEL,
 } from './config';
+import { buildOpenAiBaseUrl, normalizeOpenAiBaseUrl, parseOpenAiBaseUrl } from '../shared/llm';
 import type { Settings, SettingsUpdate } from '../shared/types';
 
 const KEY = 'settings';
@@ -31,11 +32,18 @@ export function getStoredSettings(): StoredSettings {
 
 export function publicSettings(): Settings {
   const s = getStoredSettings();
+  const storedBaseUrl = normalizeOpenAiBaseUrl(s.openaiBaseUrl) || normalizeOpenAiBaseUrl(OPENAI_BASE_URL);
+  const parsed = parseOpenAiBaseUrl(storedBaseUrl);
+  const openaiHost = s.openaiHost?.trim() || parsed.host;
+  const openaiPort = s.openaiPort?.trim() || parsed.port;
   return {
-    llmProvider: s.llmProvider ?? (ANTHROPIC_API_KEY ? 'anthropic' : OPENAI_API_KEY ? 'openai_compatible' : 'none'),
+    llmProvider: s.llmProvider ?? (ANTHROPIC_API_KEY ? 'anthropic' : OPENAI_API_KEY || OPENAI_BASE_URL ? 'openai_compatible' : 'none'),
     anthropicModel: s.anthropicModel || 'claude-sonnet-5',
-    openaiBaseUrl: s.openaiBaseUrl || OPENAI_BASE_URL || '',
+    openaiBaseUrl: storedBaseUrl || (openaiHost ? buildOpenAiBaseUrl({ protocol: 'http', host: openaiHost, port: openaiPort, path: '/v1' }) : ''),
+    openaiHost,
+    openaiPort,
     openaiModel: s.openaiModel || OPENAI_MODEL || '',
+    opencodeModel: s.opencodeModel || '',
     anthropicApiKeySet: Boolean(s.anthropicApiKey || ANTHROPIC_API_KEY),
     openaiApiKeySet: Boolean(s.openaiApiKey || OPENAI_API_KEY),
     civitaiTokenSet: Boolean(s.civitaiToken || CIVITAI_TOKEN),
@@ -62,6 +70,34 @@ export function updateSettings(update: SettingsUpdate): Settings {
       (next as Record<string, unknown>)[key] = value;
     }
   }
+
+  // Keep the canonical base URL and the Settings page's host/port fields in sync. A full base URL
+  // wins (it may carry https and a path such as /api/v1); host/port alone default to http + /v1.
+  if (update.openaiBaseUrl !== undefined) {
+    const normalized = normalizeOpenAiBaseUrl(update.openaiBaseUrl);
+    if (normalized) {
+      next.openaiBaseUrl = normalized;
+      const parsed = parseOpenAiBaseUrl(normalized);
+      next.openaiHost = parsed.host;
+      next.openaiPort = parsed.port;
+    } else {
+      delete next.openaiBaseUrl;
+      if (update.openaiHost === undefined) delete next.openaiHost;
+      if (update.openaiPort === undefined) delete next.openaiPort;
+    }
+  } else if (update.openaiHost !== undefined || update.openaiPort !== undefined) {
+    const host = (next.openaiHost ?? '').trim();
+    if (host) {
+      next.openaiBaseUrl = buildOpenAiBaseUrl({ protocol: 'http', host, port: (next.openaiPort ?? '').trim(), path: '/v1' });
+    }
+  }
+
+  // Never leave host/port stored without a usable URL (e.g. an older settings row or a partial update).
+  if (!next.openaiBaseUrl) {
+    const host = (next.openaiHost ?? '').trim();
+    if (host) next.openaiBaseUrl = buildOpenAiBaseUrl({ protocol: 'http', host, port: (next.openaiPort ?? '').trim(), path: '/v1' });
+  }
+
   kv.set(KEY, next);
   return publicSettings();
 }

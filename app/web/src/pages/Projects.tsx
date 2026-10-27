@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Boxes, Film, Plus, Clapperboard, PenLine } from 'lucide-react';
+import { ArrowLeft, Boxes, Film, Plus, Clapperboard, PenLine, Sparkles } from 'lucide-react';
 import { api, mediaUrl } from '../lib/api';
 import { toast } from '../lib/store';
 import { Button, Dialog, Segmented, Skeleton } from '../components/ui';
@@ -53,11 +53,23 @@ function ProjectCard({ project }: { project: Project }) {
   );
 }
 
-type NewFilmMode = 'previs' | 'script';
+type NewFilmMode = 'previs' | 'script' | 'autopilot';
 
-function ModeChoice({ onPick }: { onPick: (mode: NewFilmMode) => void }) {
+function ModeChoice({ onPick, llmConfigured }: { onPick: (mode: NewFilmMode) => void; llmConfigured: boolean }) {
   return (
     <div className="flex flex-col gap-3">
+      {llmConfigured && (
+        <button
+          onClick={() => onPick('autopilot')}
+          className="flex flex-col gap-1 rounded-xl border border-[var(--color-amber-400)]/40 bg-[var(--color-amber-400)]/5 p-4 text-left transition-colors hover:border-[var(--color-amber-400)]/70 hover:bg-[var(--color-amber-400)]/10"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-[var(--color-ink-0)]">
+            <Sparkles className="size-4 text-[var(--color-amber-300)]" /> One prompt
+            <span className="rounded-full bg-[var(--color-amber-400)]/15 px-2 py-0.5 text-[10px] font-medium text-[var(--color-amber-300)]">New</span>
+          </span>
+          <span className="text-xs text-[var(--color-ink-2)]">Describe the idea once: the AI plans the scenes and shots, then makes a still for every scene and every shot. You review, then animate and export.</span>
+        </button>
+      )}
       <button
         onClick={() => onPick('previs')}
         className="flex flex-col gap-1 rounded-xl border border-[var(--color-hairline)] p-4 text-left transition-colors hover:border-[var(--color-amber-400)]/50 hover:bg-[var(--color-amber-400)]/5"
@@ -89,6 +101,7 @@ function NewFilmDialog({ open, onClose, initialMode }: { open: boolean; onClose:
   const { data: system } = useQuery({ queryKey: ['system'], queryFn: api.system });
   // With an AI connected, the idea goes straight into a breakdown (Script tab → review → storyboard).
   const breakdownNext = mode === 'script' && Boolean(idea.trim() && system?.llmConfigured);
+  const isAutopilot = mode === 'autopilot';
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -104,14 +117,38 @@ function NewFilmDialog({ open, onClose, initialMode }: { open: boolean; onClose:
 
   const create = useMutation({
     mutationFn: async () => {
-      const project = await api.createProject({ name: name.trim() || 'Untitled Film', script: mode === 'script' ? idea.trim() || undefined : undefined, aspect, mode: mode ?? undefined });
+      const project = await api.createProject({
+        name: name.trim() || 'Untitled Film',
+        script: mode !== 'previs' ? idea.trim() || undefined : undefined,
+        aspect,
+        mode: isAutopilot ? 'script' : mode ?? undefined,
+      });
       // A previs film starts with its first scene, so the guided steps are the first thing on the page.
       if (mode === 'previs') await api.createScene(project.id, { title: 'Scene 1' });
-      return project;
+      // One prompt: plan the storyboard, make a still for every scene, then every shot keyframe. It stops
+      // before animation so stills and frames can be reviewed (the project page has Animate and Export).
+      let autopilotError: string | undefined;
+      if (isAutopilot) {
+        try {
+          await api.autopilot(project.id, { script: idea.trim() });
+        } catch (err) {
+          autopilotError = (err as Error).message;
+        }
+      }
+      return { project, autopilotError };
     },
-    onSuccess: (project) => {
+    onSuccess: ({ project, autopilotError }) => {
       qc.invalidateQueries({ queryKey: ['projects'] });
-      toast({ title: 'Film created', variant: 'success' });
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      if (autopilotError) {
+        toast({ title: 'Film created', description: `Could not start the one-prompt run: ${autopilotError}`, variant: 'error' });
+      } else {
+        toast({
+          title: isAutopilot ? 'Making your film' : 'Film created',
+          description: isAutopilot ? 'Planning the scenes, then rendering a still for each scene and shot.' : undefined,
+          variant: 'success',
+        });
+      }
       onClose();
       reset();
       navigate(`/projects/${project.id}`, { state: { breakdown: breakdownNext } });
@@ -129,7 +166,7 @@ function NewFilmDialog({ open, onClose, initialMode }: { open: boolean; onClose:
       title="New film"
     >
       {mode === null ? (
-        <ModeChoice onPick={setMode} />
+        <ModeChoice onPick={setMode} llmConfigured={Boolean(system?.llmConfigured)} />
       ) : (
         <div className="flex flex-col gap-4">
           <button onClick={() => setMode(null)} className="flex items-center gap-1 self-start text-xs text-[var(--color-ink-2)] hover:text-[var(--color-ink-0)]">
@@ -145,20 +182,22 @@ function NewFilmDialog({ open, onClose, initialMode }: { open: boolean; onClose:
               className="h-10 rounded-lg border border-[var(--color-hairline)] bg-[var(--color-bg-2)] px-3 text-sm text-[var(--color-ink-0)] outline-none focus:border-[var(--color-amber-400)]/50"
             />
           </label>
-          {mode === 'script' && (
+          {mode !== 'previs' && (
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-[var(--color-ink-2)]">What's it about?</span>
+              <span className="text-xs font-medium text-[var(--color-ink-2)]">{isAutopilot ? 'Your film, in a prompt' : "What's it about?"}</span>
               <textarea
                 value={idea}
                 onChange={(e) => setIdea(e.target.value)}
                 rows={5}
-                placeholder="A one-line idea, a treatment, or a full screenplay…"
+                placeholder={isAutopilot ? 'A one-line idea or a treatment. The AI invents the rest.' : 'A one-line idea, a treatment, or a full screenplay…'}
                 className="resize-none rounded-lg border border-[var(--color-hairline)] bg-[var(--color-bg-2)] px-3 py-2 text-sm text-[var(--color-ink-0)] outline-none focus:border-[var(--color-amber-400)]/50"
               />
               <span className="text-[11px] text-[var(--color-ink-3)]">
-                {system?.llmConfigured
-                  ? 'The AI turns it into characters, locations, scenes and shots for you to review.'
-                  : 'Write or paste your idea, then add the scenes and shots yourself, or have your AI agent plan them.'}
+                {isAutopilot
+                  ? 'Creates the cast, locations, scenes and shots, a still for every scene, and every shot keyframe. Then it waits for you.'
+                  : system?.llmConfigured
+                    ? 'The AI turns it into characters, locations, scenes and shots for you to review.'
+                    : 'Write or paste your idea, then add the scenes and shots yourself, or have your AI agent plan them.'}
               </span>
             </label>
           )}
@@ -171,8 +210,8 @@ function NewFilmDialog({ open, onClose, initialMode }: { open: boolean; onClose:
             <Button variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button variant="primary" loading={create.isPending} onClick={() => create.mutate()}>
-              {breakdownNext ? 'Create and break down' : 'Create film'}
+            <Button variant="primary" loading={create.isPending} disabled={mode !== 'previs' && !idea.trim()} onClick={() => create.mutate()}>
+              {isAutopilot ? 'Make the film' : breakdownNext ? 'Create and break down' : 'Create film'}
             </Button>
           </div>
         </div>
@@ -185,6 +224,7 @@ export default function Projects() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<NewFilmMode | undefined>(undefined);
   const { data: projects, isLoading } = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const { data: system } = useQuery({ queryKey: ['system'], queryFn: api.system });
 
   function openNewFilm(mode?: NewFilmMode) {
     setDialogMode(mode);
@@ -243,6 +283,18 @@ export default function Projects() {
                 </span>
                 <span className="text-xs text-[var(--color-ink-2)]">No Blender needed: write or paste an idea and plan the shots from it.</span>
               </button>
+              {system?.llmConfigured && (
+                <button
+                  onClick={() => openNewFilm('autopilot')}
+                  className="flex flex-col gap-1 rounded-xl border border-[var(--color-amber-400)]/40 bg-[var(--color-amber-400)]/5 p-4 text-left transition-colors hover:border-[var(--color-amber-400)]/70 hover:bg-[var(--color-amber-400)]/10 sm:col-span-2"
+                >
+                  <span className="flex items-center gap-2 text-sm font-medium text-[var(--color-ink-0)]">
+                    <Sparkles className="size-4 text-[var(--color-amber-300)]" /> One prompt
+                    <span className="rounded-full bg-[var(--color-amber-400)]/15 px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-amber-300)]">New</span>
+                  </span>
+                  <span className="text-xs text-[var(--color-ink-2)]">Describe the film once: the AI plans it and renders a still for every scene and shot. Review, then animate and export.</span>
+                </button>
+              )}
             </div>
           </div>
         )}

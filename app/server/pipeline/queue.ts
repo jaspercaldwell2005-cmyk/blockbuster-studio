@@ -161,6 +161,7 @@ export function jobFamilies(job: Pick<Job, 'type' | 'params'>): [ModelFamily, Mo
       return ['zimage', 'zimage'];
     case 'location_angle':
     case 'character_build': // Qwen edits from the chosen look, then training (which frees ComfyUI itself)
+    case 'scene_concept': // Qwen with cast references when available; Z-Image otherwise
     case 'shot_keyframe': // compose mode (the common case) is Qwen; generate mode is Z-Image
       return ['qwen', 'qwen'];
     case 'shot_video':
@@ -189,6 +190,9 @@ export function gpuHandoff(loaded: ModelFamily | null, next: ModelFamily | undef
 export function pickNext(queued: Job[], loaded: ModelFamily | null, skipCounts: Map<ID, number>): Job | undefined {
   const head = queued[0];
   if (!head || !loaded) return head;
+  // One-prompt runs are an ordered chain (references → scene concepts → keyframes). Never reorder inside it,
+  // or a keyframe could render before the concept/reference image it composes from.
+  if ((head.params as { chainId?: unknown }).chainId) return head;
   if ((skipCounts.get(head.id) ?? 0) >= MAX_SKIPS) return head;
   if (jobFamilies(head)?.[0] === loaded) return head;
   for (let i = 1; i < queued.length; i++) {

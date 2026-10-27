@@ -46,15 +46,20 @@ registerRunner('shot_keyframe', async (job, ctx) => {
     let keyframeAssetId: ID;
 
     if (plan.mode === 'compose') {
-      const location = shotCtx.location!;
       let plateAssetId: ID;
-      if (plan.usesEstablishingDirectly) {
-        plateAssetId = location.establishingAssetId!;
+      const conceptAssetId = shotCtx.scene.conceptAssetId;
+      if (conceptAssetId) {
+        // The scene's concept still is the anchor for every shot in the scene: same place, light and cast.
+        plateAssetId = conceptAssetId;
+        ctx.setProgress(0.3, 'Using scene concept');
+      } else if (plan.usesEstablishingDirectly) {
+        plateAssetId = shotCtx.location!.establishingAssetId!;
         ctx.setProgress(0.3, 'Using establishing plate');
       } else if (plan.cachedAngleAssetId) {
         plateAssetId = plan.cachedAngleAssetId;
         ctx.setProgress(0.3, 'Using cached angle plate');
       } else {
+        const location = shotCtx.location!;
         const establishing = assetsRepo.get(location.establishingAssetId!);
         if (!establishing) throw new Error('Establishing asset is missing on disk');
         const imageName = await uploadAssetToComfy(ctx.comfy, establishing);

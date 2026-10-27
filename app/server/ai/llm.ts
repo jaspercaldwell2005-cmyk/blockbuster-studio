@@ -7,17 +7,21 @@
 // with their own schema (see breakdown.ts's zod usage) since the model's output is not trusted.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL } from '../config';
+import { ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENAI_BASE_URL } from '../config';
 import { kv } from '../db';
+import { normalizeOpenAiBaseUrl } from '../../shared/llm';
+import { resolveOpenAiEndpoint } from './openai';
+import { generateOpenCodeText } from './opencode';
 import type { Settings } from '../../shared/types';
 
 export interface LlmConfig {
-  provider: 'anthropic' | 'openai_compatible';
+  provider: 'anthropic' | 'openai_compatible' | 'opencode';
   anthropicApiKey?: string;
   anthropicModel?: string; // default 'claude-sonnet-5'
   openaiApiKey?: string;
   openaiBaseUrl?: string;
   openaiModel?: string;
+  opencodeModel?: string;
 }
 
 // Settings as stored in `kv` — non-secret fields shaped like `Settings`, plus the write-only
@@ -34,7 +38,13 @@ type StoredSettings = Partial<Settings> & {
  */
 export function resolveLlmConfig(): LlmConfig | undefined {
   const stored = kv.get<StoredSettings>('settings');
-  const provider = stored?.llmProvider ?? (ANTHROPIC_API_KEY ? 'anthropic' : OPENAI_API_KEY ? 'openai_compatible' : 'none');
+  const provider =
+    stored?.llmProvider ??
+    (ANTHROPIC_API_KEY
+      ? 'anthropic'
+      : OPENAI_API_KEY || OPENAI_BASE_URL || stored?.openaiBaseUrl || stored?.openaiHost
+        ? 'openai_compatible'
+        : 'none');
 
   if (provider === 'anthropic') {
     const anthropicApiKey = stored?.anthropicApiKey || ANTHROPIC_API_KEY;
@@ -47,11 +57,22 @@ export function resolveLlmConfig(): LlmConfig | undefined {
   }
 
   if (provider === 'openai_compatible') {
-    const openaiApiKey = stored?.openaiApiKey || OPENAI_API_KEY;
-    const openaiBaseUrl = stored?.openaiBaseUrl || OPENAI_BASE_URL;
-    const openaiModel = stored?.openaiModel || OPENAI_MODEL;
-    if (!openaiApiKey || !openaiBaseUrl || !openaiModel) return undefined;
-    return { provider: 'openai_compatible', openaiApiKey, openaiBaseUrl, openaiModel };
+    const endpoint = resolveOpenAiEndpoint();
+    // Local servers often need no key, so only the URL and model are required.
+    if (!endpoint.baseUrl || !endpoint.model) return undefined;
+    return {
+      provider: 'openai_compatible',
+      openaiApiKey: endpoint.apiKey || undefined,
+      openaiBaseUrl: endpoint.baseUrl,
+      openaiModel: endpoint.model,
+    };
+  }
+
+  if (provider === 'opencode') {
+    const opencodeModel = stored?.opencodeModel?.trim();
+    // The account credential is owned by OpenCode; the studio only needs the chosen model.
+    if (!opencodeModel) return undefined;
+    return { provider: 'opencode', opencodeModel };
   }
 
   return undefined;
@@ -78,6 +99,9 @@ export async function callLlmForJson<T = unknown>(opts: CallLlmForJsonOpts): Pro
 
   if (cfg.provider === 'anthropic') {
     return callAnthropic<T>(cfg, opts);
+  }
+  if (cfg.provider === 'opencode') {
+    return callOpenCode<T>(cfg, opts);
   }
   return callOpenAiCompatible<T>(cfg, opts);
 }
@@ -113,16 +137,47 @@ async function callAnthropic<T>(cfg: LlmConfig, opts: CallLlmForJsonOpts): Promi
   return toolUse.input as T;
 }
 
+/** Parse a JSON object from a plain-text model reply (OpenCode's stateless endpoint has no response_format). */
+function parseJsonObject(text: string): unknown {
+  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const start = trimmed.indexOf('{');
+    const end = trimmed.lastIndexOf('}');
+    if (start >= 0 && end > start) return JSON.parse(trimmed.slice(start, end + 1));
+    throw new Error('OpenCode model response was not valid JSON');
+  }
+}
+
+async function callOpenCode<T>(cfg: LlmConfig, opts: CallLlmForJsonOpts): Promise<T> {
+  if (!cfg.opencodeModel) throw new Error('Choose an OpenCode model first');
+  const prompt = [
+    opts.system,
+    'Respond with a single JSON object matching this schema:',
+    JSON.stringify(opts.schema),
+    '',
+    opts.user,
+  ].join('\n');
+
+  let text: string;
+  try {
+    text = await generateOpenCodeText(prompt, cfg.opencodeModel);
+  } catch (err) {
+    throw new Error(`OpenCode request failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return parseJsonObject(text) as T;
+}
+
 async function callOpenAiCompatible<T>(cfg: LlmConfig, opts: CallLlmForJsonOpts): Promise<T> {
-  const baseUrl = (cfg.openaiBaseUrl ?? '').replace(/\/+$/, '');
+  const baseUrl = normalizeOpenAiBaseUrl(cfg.openaiBaseUrl);
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (cfg.openaiApiKey) headers.Authorization = `Bearer ${cfg.openaiApiKey}`;
   let res: Response;
   try {
     res = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${cfg.openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         model: cfg.openaiModel,
         response_format: { type: 'json_object' },

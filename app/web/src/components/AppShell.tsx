@@ -11,6 +11,7 @@ import { QueueDrawer } from './QueueDrawer';
 import { Logo } from './Logo';
 import { DOCS_URL } from '../lib/links';
 import { VideoSetup, gatedHeadline, gatedRepoFor } from './VideoSetup';
+import { LlmModelSwitcher } from './LlmModelSwitcher';
 
 // Shown once per browser: auto-opens the VideoSetup dialog the first time a video download turns out
 // to be waiting on a gated Hugging Face repo, so the fix is in front of the user without them hunting
@@ -177,6 +178,7 @@ export function AppShell() {
             )}
             <span className={clsx('size-1.5 rounded-full', system?.comfy.online ? 'bg-[var(--color-success)]' : 'bg-[var(--color-danger)]')} />
           </div>
+          <LlmModelSwitcher />
           <button
             onClick={() => setQueueOpen(!queueOpen)}
             className="relative flex h-9 items-center gap-2 rounded-lg border border-[var(--color-hairline)] bg-[var(--color-bg-1)] px-3 text-xs text-[var(--color-ink-1)] hover:bg-[var(--color-bg-2)]"

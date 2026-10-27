@@ -29,6 +29,30 @@ export function openApiDocument() {
     security: [{ agentToken: [] }],
     paths: {
       '/api/system': { get: { summary: 'GPU, installed models, video model', responses: { ...ok('SystemInfo', { type: 'object' }), ...errors } } },
+      '/api/settings': {
+        get: { summary: 'Read settings (secrets are reported only as *Set booleans)', responses: { ...ok('Settings', { type: 'object' }), ...errors } },
+        put: {
+          summary: 'Save settings, including the LLM host/port and provider',
+          requestBody: { content: json({ type: 'object', properties: { llmProvider: { enum: ['none', 'anthropic', 'openai_compatible'] }, anthropicModel: { type: 'string' }, openaiHost: { type: 'string' }, openaiPort: { type: 'string' }, openaiBaseUrl: { type: 'string' }, openaiModel: { type: 'string' }, anthropicApiKey: { type: 'string' }, openaiApiKey: { type: 'string' } } }) },
+          responses: { ...ok('Settings', { type: 'object' }), ...errors },
+        },
+      },
+      '/api/ai/models': {
+        post: {
+          summary: 'List the models an OpenAI-compatible LLM server offers',
+          description: 'Calls GET {baseUrl}/models. Pass host/port (or a full baseUrl) to test unsaved Settings; stored values are used for anything omitted.',
+          requestBody: { content: json({ type: 'object', properties: { host: { type: 'string' }, port: { type: 'string' }, baseUrl: { type: 'string' }, apiKey: { type: 'string' } } }) },
+          responses: { ...ok('Models', { type: 'object', properties: { baseUrl: { type: 'string' }, models: { type: 'array', items: { type: 'string' } } } }), ...errors, '400': { description: 'No LLM endpoint configured' }, '502': { description: 'The LLM server could not be reached or returned no models' } },
+        },
+      },
+      '/api/ai/test': {
+        post: {
+          summary: 'Test an OpenAI-compatible LLM endpoint with one small chat call',
+          description: 'Posts a one-line prompt to {baseUrl}/chat/completions and returns the reply and latency. Pass the same overrides as /api/ai/models, plus model.',
+          requestBody: { content: json({ type: 'object', properties: { host: { type: 'string' }, port: { type: 'string' }, baseUrl: { type: 'string' }, apiKey: { type: 'string' }, model: { type: 'string' } } }) },
+          responses: { ...ok('Test result', { type: 'object', properties: { baseUrl: { type: 'string' }, model: { type: 'string' }, latencyMs: { type: 'number' }, reply: { type: 'string' } } }), ...errors, '400': { description: 'No endpoint or model configured' }, '502': { description: 'The LLM server could not be reached or returned no text' } },
+        },
+      },
       '/api/diagnostics': {
         get: {
           summary: 'Setup-milestone timings',
@@ -90,6 +114,32 @@ export function openApiDocument() {
           responses: { ...jobCreated(true), ...errors },
         },
       },
+      '/api/projects/{id}/script': {
+        post: {
+          summary: 'Quick prompt → a full, editable screenplay',
+          description: 'The AI expands a quick idea into a complete short-film screenplay and saves it as the project script. Editors use it before the breakdown; nothing is broken down or rendered here. Needs an AI provider.',
+          parameters: [id('id')],
+          requestBody: { content: json({ type: 'object', properties: { prompt: { type: 'string', description: 'The quick idea, a line or a short paragraph' } }, required: ['prompt'] }) },
+          responses: { ...ok('Project', { type: 'object' }), ...errors, '400': { description: 'No AI provider configured, or the prompt is empty' } },
+        },
+      },
+      '/api/projects/{id}/autopilot': {
+        post: {
+          summary: 'One prompt → script, storyboard, a scene still per scene, and every shot keyframe',
+          description: 'Writes a full script from the idea, runs the AI breakdown and applies it, then queues character/location references, one scene concept still per scene, and every shot keyframe. Stops before video and export, so stills can be reviewed first. Needs an AI provider.',
+          parameters: [id('id')],
+          requestBody: { content: json({ type: 'object', properties: { script: { type: 'string', description: 'The idea to break down; defaults to the project script' } } }) },
+          responses: { ...jobCreated(), ...errors, '400': { description: 'No AI provider configured, or the film has no idea/script' } },
+        },
+      },
+      '/api/scenes/{id}/concept': {
+        post: {
+          summary: 'Render (or re-render) the scene concept still',
+          description: "Sets Scene.conceptAssetId. The still is the scene's storyboard cover and the plate its shot keyframes compose from.",
+          parameters: [id('id')],
+          responses: { ...jobCreated(), ...errors },
+        },
+      },
       '/api/scenes/{id}': {
         patch: {
           summary: "Change a scene (previs/reference-sheet fields, castIds, blocking, location, …)",
@@ -99,6 +149,7 @@ export function openApiDocument() {
               type: 'object',
               properties: {
                 castIds: { type: 'array', items: { type: 'string' }, description: "The scene's cast (character/prop ids), in order of importance" },
+                conceptAssetId: { type: 'string', description: "The scene's concept/establishing still" },
                 previsAssetId: { type: 'string' },
                 previsDepthAssetId: { type: 'string' },
                 previsCuts: { type: 'array', items: { type: 'number' }, description: "Cut times in seconds, one fewer than the shot count; recomputes shot durationSec" },

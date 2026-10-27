@@ -27,7 +27,7 @@ db.pragma('foreign_keys = ON');
 export const now = (): ISODate => new Date().toISOString();
 export const newId = (): ID => nanoid(12);
 
-const CURRENT_VERSION = 10;
+const CURRENT_VERSION = 11;
 
 function migrate() {
   const version = db.pragma('user_version', { simple: true }) as number;
@@ -83,6 +83,8 @@ function migrate() {
       ALTER TABLE scenes ADD COLUMN castIds TEXT;
     `);
   }
+  // v11: one establishing/concept still per scene (the storyboard cover, and the plate shot keyframes compose from).
+  if (version < 11) db.exec('ALTER TABLE scenes ADD COLUMN conceptAssetId TEXT');
   db.pragma(`user_version = ${CURRENT_VERSION}`);
 }
 
@@ -849,6 +851,7 @@ function rowToScene(r: any): Scene {
     castIds: r.castIds ? parseJ(r.castIds, undefined) : undefined,
     referenceSheetAssetId: r.referenceSheetAssetId ?? undefined,
     referenceSheetText: r.referenceSheetText ?? undefined,
+    conceptAssetId: r.conceptAssetId ?? undefined,
     previsAssetId: r.previsAssetId ?? undefined,
     previsDepthAssetId: r.previsDepthAssetId ?? undefined,
     previsCuts: r.previsCuts ? parseJ(r.previsCuts, undefined) : undefined,
@@ -863,8 +866,8 @@ export const scenes = {
     const t = now();
     const maxOrder = (db.prepare('SELECT MAX("order") as m FROM scenes WHERE projectId = ?').get(s.projectId) as any)?.m ?? -1;
     db.prepare(
-      `INSERT INTO scenes (id,projectId,"order",title,description,locationId,timeOfDay,blocking,castIds,referenceSheetAssetId,referenceSheetText,previsAssetId,previsDepthAssetId,previsCuts,createdAt,updatedAt)
-       VALUES (@id,@projectId,@order,@title,@description,@locationId,@timeOfDay,@blocking,@castIds,@referenceSheetAssetId,@referenceSheetText,@previsAssetId,@previsDepthAssetId,@previsCuts,@createdAt,@updatedAt)`,
+      `INSERT INTO scenes (id,projectId,"order",title,description,locationId,timeOfDay,blocking,castIds,referenceSheetAssetId,referenceSheetText,conceptAssetId,previsAssetId,previsDepthAssetId,previsCuts,createdAt,updatedAt)
+       VALUES (@id,@projectId,@order,@title,@description,@locationId,@timeOfDay,@blocking,@castIds,@referenceSheetAssetId,@referenceSheetText,@conceptAssetId,@previsAssetId,@previsDepthAssetId,@previsCuts,@createdAt,@updatedAt)`,
     ).run({
       id,
       projectId: s.projectId,
@@ -877,6 +880,7 @@ export const scenes = {
       castIds: s.castIds ? j(s.castIds) : null,
       referenceSheetAssetId: s.referenceSheetAssetId ?? null,
       referenceSheetText: s.referenceSheetText ?? null,
+      conceptAssetId: s.conceptAssetId ?? null,
       previsAssetId: s.previsAssetId ?? null,
       previsDepthAssetId: s.previsDepthAssetId ?? null,
       previsCuts: s.previsCuts ? j(s.previsCuts) : null,
@@ -898,7 +902,7 @@ export const scenes = {
     const next = { ...cur, ...patch, updatedAt: now() };
     db.prepare(
       `UPDATE scenes SET "order"=@order, title=@title, description=@description, locationId=@locationId, timeOfDay=@timeOfDay, blocking=@blocking, castIds=@castIds,
-       referenceSheetAssetId=@referenceSheetAssetId, referenceSheetText=@referenceSheetText, previsAssetId=@previsAssetId, previsDepthAssetId=@previsDepthAssetId, previsCuts=@previsCuts,
+       referenceSheetAssetId=@referenceSheetAssetId, referenceSheetText=@referenceSheetText, conceptAssetId=@conceptAssetId, previsAssetId=@previsAssetId, previsDepthAssetId=@previsDepthAssetId, previsCuts=@previsCuts,
        updatedAt=@updatedAt WHERE id=@id`,
     ).run({
       id,
@@ -911,6 +915,7 @@ export const scenes = {
       castIds: next.castIds ? j(next.castIds) : null,
       referenceSheetAssetId: next.referenceSheetAssetId ?? null,
       referenceSheetText: next.referenceSheetText ?? null,
+      conceptAssetId: next.conceptAssetId ?? null,
       previsAssetId: next.previsAssetId ?? null,
       previsDepthAssetId: next.previsDepthAssetId ?? null,
       previsCuts: next.previsCuts ? j(next.previsCuts) : null,

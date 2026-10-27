@@ -372,7 +372,14 @@ export default function ProjectDetail() {
             onWriteScript={() => setTab('script')}
           />
         )}
-        {tab === 'script' && <ScriptTab project={project} autoBreakdown={autoBreakdown} onApplied={() => setTab('storyboard')} />}
+        {tab === 'script' && (
+          <ScriptTab
+            project={project}
+            autoBreakdown={autoBreakdown}
+            hasStoryboard={scenes.length > 0}
+            onApplied={() => setTab('storyboard')}
+          />
+        )}
         {tab === 'timeline' && <TimelineTab project={project} scenes={scenes} />}
       </div>
     </div>

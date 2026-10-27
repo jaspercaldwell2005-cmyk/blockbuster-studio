@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Clapperboard, GripVertical, MapPinned, Plus, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -7,6 +7,7 @@ import type { AspectRatio, Character, Location, Scene, Shot, TimeOfDay } from '@
 import { TIMES_OF_DAY } from '@shared/presets';
 import { Menu, Button } from '../ui';
 import { ShotCard } from './ShotCard';
+import { SceneConceptCard } from './SceneConceptCard';
 import { PrevisPanel } from './PrevisPanel';
 import { ReferenceSheetCard } from './ReferenceSheetCard';
 import { useDebouncedCallback } from './hooks';
@@ -37,16 +38,23 @@ export function SceneCard({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [title, setTitle] = useState(scene.title);
+  const [description, setDescription] = useState(scene.description);
   const [dragShotId, setDragShotId] = useState<string | null>(null);
   const [overShotId, setOverShotId] = useState<string | null>(null);
   const [previsOpen, setPrevisOpen] = useState(false);
   const qc = useQueryClient();
+
+  useEffect(() => {
+    setTitle(scene.title);
+    setDescription(scene.description);
+  }, [scene.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const patchScene = useMutation({
     mutationFn: (patch: Partial<Scene>) => api.updateScene(scene.id, patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['project', projectId] }),
   });
   const debouncedTitle = useDebouncedCallback((v: string) => patchScene.mutate({ title: v }), 700);
+  const debouncedDescription = useDebouncedCallback((v: string) => patchScene.mutate({ description: v }), 700);
 
   const deleteScene = useMutation({
     mutationFn: () => api.deleteScene(scene.id),
@@ -148,7 +156,26 @@ export function SceneCard({
       </div>
 
       {!collapsed && (
+        <div className="px-4 pb-3">
+          <label className="flex items-start gap-2">
+            <span className="shrink-0 pt-1 text-[10px] font-medium uppercase tracking-wide text-[var(--color-ink-3)]">Scene prompt</span>
+            <textarea
+              value={description}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                debouncedDescription(e.target.value);
+              }}
+              rows={2}
+              placeholder="What happens here? This shapes the scene still and its shots."
+              className="min-h-0 w-full resize-none bg-transparent text-xs leading-relaxed text-[var(--color-ink-2)] outline-none placeholder:text-[var(--color-ink-3)] focus:text-[var(--color-ink-1)]"
+            />
+          </label>
+        </div>
+      )}
+
+      {!collapsed && (
         <div className="flex gap-3 overflow-x-auto px-4 pb-4">
+          <SceneConceptCard scene={scene} projectId={projectId} aspect={aspect} />
           {scene.shots.map((shot, i) => (
             <div
               key={shot.id}

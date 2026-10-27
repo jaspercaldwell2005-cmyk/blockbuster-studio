@@ -12,6 +12,7 @@ import { GatedTokenField } from '../components/GatedTokenField';
 import { gatedRepoFor } from '../components/VideoSetup';
 import { Diagnostics } from '../components/Diagnostics';
 import { Storage } from '../components/Storage';
+import { LlmSettings } from '../components/LlmSettings';
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
@@ -189,6 +190,8 @@ export default function SettingsPage() {
             </Button>
           </div>
         </div>
+
+        <LlmSettings settings={settings} />
 
         <section className="space-y-4 rounded-xl border border-[var(--color-hairline)] bg-[var(--color-bg-1)] p-4">
           <h2 className="font-semibold tracking-tight text-lg text-[var(--color-ink-0)]">Download tokens</h2>

@@ -60,7 +60,8 @@ doing. Model download logs also live inside the data folder, under `studio/logs/
 | `make container-check` | Check `nvidia-smi` on the host and that Docker can see the GPU |
 | `make container-pull` | Pull `docker.io/kiloloco/blockbuster-studio:latest` |
 | `make container-up` | Create or recreate the container; pulls the image if it isn't local |
-| `make container-dev` | Recreate it with this checkout's `dist/web` mounted, so frontend edits need no image rebuild |
+| `make container-dev` | Start the container and Vite hot reload in one terminal (frontend edits update live) |
+| `make container-dev-static` | Recreate it with this checkout's `dist/web` mounted (pair with `make dev-web-watch`) |
 | `make container-start` | Resume a stopped container (no model re-download) |
 | `make container-stop` | Stop the container; keeps models, films and password |
 | `make container-restart` | Restart it (reopens the 15-minute setup window if unclaimed) |
@@ -68,6 +69,9 @@ doing. Model download logs also live inside the data folder, under `studio/logs/
 | `make container-shell` | Open a shell inside the container |
 | `make container-status` | Show whether it is running and which ports are mapped |
 | `make open` | Open the running studio in your browser (uses its actual port) |
+| `make db-clear` | Delete the database; backs it up first, keeps password, models and media |
+| `make media-clear` | Delete every generated image, clip and film; keeps the database |
+| `make reset-data` | Both of the above, asking once |
 | `make container-update` | Pull the latest image and recreate the container |
 | `make container-remove` | Delete the container (the data folder is kept) |
 
@@ -77,34 +81,48 @@ folder yourself, loses anything.
 
 ### Change the frontend without rebuilding the image
 
-The image serves the web app from `/opt/studio/dist/web`. You can bind-mount this checkout's build
-over it, so a frontend edit shows up in the same container (same GPU, same database, same URL)
-without a `docker build`:
+One command starts the container and a Vite dev server with **hot-module reload**, so a frontend
+edit updates the page without a refresh — same GPU, database and API as the container:
 
 ```sh
-make build-web          # once, so dist/web exists
-make container-dev      # recreate the container with dist/web mounted read-only
-make dev-web-watch      # in a second terminal: rebuilds dist/web on every save
+make container-dev      # http://localhost:5174 (the container keeps its usual port)
 ```
 
-With `dev-web-watch` running, saving a file under `web/src` rebuilds in well under a second; refresh
-the browser (the filename hashes change, so the page needs a reload). `make open` opens the studio
-using whichever port the container publishes — no need to remember it. Server code still comes from
-the image — run `make build && docker build -t blockbuster-studio:local -f docker/Dockerfile .`
-from the repo root and `make container-dev IMAGE=blockbuster-studio:local` when you change `server/`.
+Saving a file under `web/src` updates the page instantly. `/api` and media are proxied to the
+running container. Stop Vite with `Ctrl-C`; the container keeps running. If a container already
+exists, `make container-dev` reuses its image (so a local build stays a local build); pass
+`IMAGE=...` to switch. It also adds `host.docker.internal` to the container, and the studio translates
+a `127.0.0.1`/`localhost` LLM host to that name, so an LLM running on your computer is reachable from
+**Settings → AI provider**.
 
-If you'd rather have real hot-module reload (page updates without refreshing), skip
-`container-dev` and point Vite at the running container instead:
+**Windows + WSL2:** if Docker Engine runs inside WSL2 but Unsloth is a Windows app on `127.0.0.1`,
+the container can't reach Windows loopback. Run `make llm-relay` and use port `8889` in Settings.
+It forwards to the Windows server on `8888` and rewrites the `Host` header Unsloth checks.
+
+Server code still comes from the image: after changing `server/`, rebuild and replace it with
 
 ```sh
-make dev-web-container  # http://localhost:5174, /api proxied to the container on STUDIO_PORT
+make build
+docker build -t blockbuster-studio:local -f ../docker/Dockerfile ..
+make container-dev IMAGE=blockbuster-studio:local
 ```
 
-Both work with a published image or your own build. **Port 3000 by default**, and you don't have to
-worry about it being busy: `make container-up` / `make container-dev` reuse the port the existing
-container already publishes, and when there is no container yet they pick the first free port at or
-above 3000 (printing which one). Passing `STUDIO_PORT` explicitly is still honoured, and then a busy
-port is an error:
+If you prefer a plain static build instead of HMR, mount `dist/web` and rebuild on save:
+
+```sh
+make build-web              # once, so dist/web exists
+make container-dev-static   # recreate with dist/web mounted read-only
+make dev-web-watch          # in a second terminal: rebuild dist/web on every save
+```
+
+With `dev-web-watch` running, saving a file under `web/src` rebuilds in well under a second;
+refresh the browser (the filename hashes change, so the page needs a reload).
+
+Both workflows work with a published image or your own build. **Port 3000 by default**, and you
+don't have to worry about it being busy: `make container-up` / `make container-dev` reuse the port
+the existing container already publishes, and when there is no container yet they pick the first
+free port at or above 3000 (printing which one). Passing `STUDIO_PORT` explicitly is still honoured,
+and then a busy port is an error:
 
 ```sh
 make container-dev STUDIO_PORT=3001   # always 3001 (fails if taken)
@@ -122,6 +140,23 @@ as `/workspace`:
 - `studio/` — database, projects, media and `password.json`
 - `models/` — the downloaded models
 - `studio/logs/` — `comfyui.log`, `server.log`, `tts.log`, `downloader.log`
+- `studio/db-backups/` — database snapshots written by `make db-clear`
+
+### Reset the studio
+
+Two destructive targets, for starting over without re-downloading models:
+
+```sh
+make db-clear      # database only: projects, cast, jobs, saved Settings
+make media-clear   # generated images/clips/films only
+make reset-data    # both, with a single confirmation
+```
+
+Each asks before doing anything; add `YES=1` to skip the prompt in scripts. Your password, agent
+token, models and logs are kept (they live outside the database). `db-clear` copies the database to
+`studio/db-backups/studio-<timestamp>.db` first — restore by stopping the container and putting that
+file back as `studio.db` (plus its `-wal` if present). Both commands work whether the container is
+running or stopped, and `db-clear` restarts it with a fresh, migrated database.
 
 Point it somewhere else with `WORKSPACE`:
 
@@ -210,8 +245,8 @@ the API without CORS setup.
 | `make dev-tts` | Run only the mock voice sidecar (port 8190) |
 | `make dev-server` | Run only the API server under `tsx watch` (port 3000) |
 | `make dev-web` | Run only the Vite web app (port 5173) |
-| `make dev-web-watch` | Rebuild `dist/web` on every save (for `make container-dev`) |
-| `make dev-web-container` | Vite with HMR on port 5174, proxying `/api` to the studio container |
+| `make dev-web-watch` | Rebuild `dist/web` on every save (for `make container-dev-static`) |
+| `make dev-web-container` | Vite with HMR on port 5174, proxying `/api` to the running studio container |
 | `make test` | Run the test suite once (`vitest run`) |
 | `make typecheck` | Type-check with `tsc --noEmit` |
 | `make check` | `typecheck` + `test` — what to run before opening a PR |

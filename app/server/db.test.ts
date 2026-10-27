@@ -90,10 +90,10 @@ function createV7Database(file: string) {
   raw.close();
 }
 
-describe('db migration to v10 (Blender previs + Ingredients sheet, 4K upscale, guided previs flow)', () => {
-  it('a fresh install gets every new column at CURRENT_VERSION 10', async () => {
+describe('db migration to v11 (Blender previs + Ingredients sheet, 4K upscale, guided previs flow, scene concept)', () => {
+  it('a fresh install gets every new column at CURRENT_VERSION 11', async () => {
     const dbMod = await import('./db');
-    expect(dbMod.db.pragma('user_version', { simple: true })).toBe(10);
+    expect(dbMod.db.pragma('user_version', { simple: true })).toBe(11);
 
     const project = dbMod.projects.create({ name: 'New Project', aspect: '16:9' });
     expect(project.grade).toBeUndefined();
@@ -111,16 +111,19 @@ describe('db migration to v10 (Blender previs + Ingredients sheet, 4K upscale, g
     const scene = dbMod.scenes.create({ projectId: project.id, title: 'INT. GARAGE' });
     expect(scene.previsAssetId).toBeUndefined();
     expect(scene.castIds).toBeUndefined();
+    expect(scene.conceptAssetId).toBeUndefined();
     const withPrevis = dbMod.scenes.update(scene.id, {
       previsAssetId: 'v1',
       previsDepthAssetId: 'v2',
       previsCuts: [3, 5.5],
       referenceSheetAssetId: 'img1',
       referenceSheetText: 'Top row left: Rex.',
+      conceptAssetId: 'concept1',
       castIds: [character.id],
     });
     expect(withPrevis?.previsCuts).toEqual([3, 5.5]);
     expect(withPrevis?.referenceSheetText).toBe('Top row left: Rex.');
+    expect(withPrevis?.conceptAssetId).toBe('concept1');
     expect(withPrevis?.castIds).toEqual([character.id]);
 
     expect(project.mode).toBeUndefined();
@@ -140,7 +143,7 @@ describe('db migration to v10 (Blender previs + Ingredients sheet, 4K upscale, g
   it('upgrades an existing v7 database in place, keeping its data, and adds the new columns as null/undefined', async () => {
     createV7Database(path.join(dataDir, 'studio.db'));
     const dbMod = await import('./db');
-    expect(dbMod.db.pragma('user_version', { simple: true })).toBe(10);
+    expect(dbMod.db.pragma('user_version', { simple: true })).toBe(11);
 
     const project = dbMod.projects.get('p1');
     expect(project?.name).toBe('Old Project');
@@ -158,6 +161,7 @@ describe('db migration to v10 (Blender previs + Ingredients sheet, 4K upscale, g
     expect(scene?.previsAssetId).toBeUndefined();
     expect(scene?.previsCuts).toBeUndefined();
     expect(scene?.castIds).toBeUndefined();
+    expect(scene?.conceptAssetId).toBeUndefined();
 
     const shot = dbMod.shots.get('sh1');
     expect(shot?.action).toBe('Mara walks in');
