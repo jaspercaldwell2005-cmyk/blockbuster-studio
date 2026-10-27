@@ -7,6 +7,23 @@ sidebar:
 
 Open **Settings** from the sidebar (on a phone, from the tab bar at the bottom). Most changes save when you click out of a field.
 
+## AI provider
+
+Connect an AI in **Settings → AI provider** for script writing, scene breakdown and prompt enhancement. Pick **OpenAI-compatible** for Unsloth, llama.cpp, LM Studio, Ollama, OpenRouter and most other servers, or **Anthropic**.
+
+For an OpenAI-compatible server, fill in:
+
+- **Scheme, host and port** — for example `http`, `127.0.0.1`, `8888`.
+- **API path** — usually `/v1`; OpenRouter uses `/api/v1`.
+- **Model** — press **Find models** to ask the server for its list, then choose one. You can also type an id by hand (Unsloth ids can contain colons, like `unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL`).
+- **API key** — most local Unsloth/llama.cpp servers accept any token or none; hosted providers need their real key.
+
+Press **Test connection** to send one small prompt, then **Save AI settings**. Unsloth serves its models through llama.cpp's OpenAI-compatible server, which exposes `/v1/models`, so **Find models** lists them automatically.
+
+:::note[The studio runs in Docker]
+Inside the studio container, `127.0.0.1` means the container itself, so the studio translates `127.0.0.1`, `localhost` and `::1` to **`host.docker.internal`** automatically. `make container-dev` and `make container-up` add that hostname. You can also enter `host.docker.internal` yourself. If the server only listens on its own `127.0.0.1`, start it on `0.0.0.0` (for example `llama-server --host 0.0.0.0 --port 8888`) so the container can connect. On Windows, if Unsloth runs as a Windows app while Docker runs inside WSL2, use [`make llm-relay`](/manage/run-locally#windows-unsloth-on-windows-docker-inside-wsl2) and port `8889`.
+:::
+
 ## Download tokens
 
 - **Civitai token**: needed to import some LoRAs from Civitai on the **LoRAs** page, including NSFW ones.
@@ -43,7 +60,7 @@ The **Sign out** button is at the top of the Settings page. Sessions otherwise l
 
 ## Set keys when you deploy
 
-Set these as environment variables under **Set overrides** on Runpod's deploy page, or later with **Edit Pod**; a pod restart picks up the new value. `ANTHROPIC_API_KEY` and the `OPENAI_*` variables connect an AI for script breakdown and Enhance prompt — there's no field for them on the Settings page. `CIVITAI_TOKEN` and `HF_TOKEN` can also be set from **Download tokens** above; if you set one in both places, the Settings page wins. `STUDIO_PASSWORD` works a little differently: when it's set, it replaces the password you created in the studio.
+Set these as environment variables under **Set overrides** on Runpod's deploy page, or later with **Edit Pod**; a pod restart picks up the new value. The Settings page's **AI provider** section is the easier way to connect an AI. `ANTHROPIC_API_KEY` and the `OPENAI_*` variables still work as startup fallbacks for script breakdown and Enhance prompt. `CIVITAI_TOKEN` and `HF_TOKEN` can also be set from **Download tokens** above; if you set one in both places, the Settings page wins. `STUDIO_PASSWORD` works a little differently: when it's set, it replaces the password you created in the studio.
 
 :::warning[Keep secrets out of plain environment variables]
 Runpod shows a pod's environment variables in plain text to anyone, and any tool, with access to your Runpod account. Prefer the Settings page for Civitai and Hugging Face tokens. If you do use a variable — for these or for an AI key — create a [Runpod Secret](https://docs.runpod.io/pods/templates/secrets) and set the variable to a reference like `{{ RUNPOD_SECRET_hf_token }}`.

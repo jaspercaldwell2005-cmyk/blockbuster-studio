@@ -27,6 +27,7 @@ Pick a folder for the studio's models and films, then run:
 
 ```sh
 docker run -d --name blockbuster-studio --gpus all --shm-size=16g -p 3000:3000 \
+  --add-host=host.docker.internal:host-gateway \
   -v ~/blockbuster-studio:/workspace \
   docker.io/kiloloco/blockbuster-studio:latest
 ```
@@ -34,6 +35,49 @@ docker run -d --name blockbuster-studio --gpus all --shm-size=16g -p 3000:3000 \
 The image is large, so the first pull takes a while. Then open **http://localhost:3000** and continue from [Quickstart](/quickstart) step 4, **Create your password**. The 15-minute setup window counts from when the container starts; if you miss it, run `docker restart blockbuster-studio`.
 
 If the studio doesn't come up, `docker logs blockbuster-studio` shows what it's doing.
+
+## Develop against the container
+
+From the `app/` folder, one command starts the studio container and a Vite dev server with **hot reload** for the frontend:
+
+```sh
+make container-dev
+```
+
+Open **http://localhost:5174**. Saving a file under `app/web/src` updates the page without a refresh; `/api` and media are proxied to the running studio container. The container itself stays on its usual port (3000, or the next free port, shown in the output). Stop Vite with <kbd>Ctrl</kbd>+<kbd>C</kbd>; the container keeps running.
+
+Server changes still need an image rebuild, because the server runs inside the container. Build and replace it with:
+
+```sh
+make build
+docker build -t blockbuster-studio:local -f ../docker/Dockerfile ..
+make container-dev IMAGE=blockbuster-studio:local
+```
+
+## Connect an LLM running on your computer
+
+Start Unsloth (or another OpenAI-compatible server) on the host, then open **Settings → AI provider**, pick **OpenAI-compatible**, and use:
+
+- host `127.0.0.1` (translated to `host.docker.internal` inside the container), or `host.docker.internal` explicitly
+- port `8888`, path `/v1`
+- the model id, for example `unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_XL`
+
+Press **Find models** to ask the server for its list. The `--add-host` flag above (and in the Makefile) makes `host.docker.internal` resolve. Make sure the server listens on `0.0.0.0` rather than only `127.0.0.1`, or the container can't reach it. See [Settings and API keys](/manage/settings#ai-provider).
+
+### Windows: Unsloth on Windows, Docker inside WSL2
+
+If Docker Engine runs inside WSL2 and the LLM is a Windows app listening only on Windows `127.0.0.1`, the container can't reach it. WSL2's mirrored networking lets WSL itself use Windows `localhost`, but Docker's `host.docker.internal` points at the WSL VM instead. WSL also can't listen on the same port while Windows owns it.
+
+Run the relay in a WSL terminal next to the studio:
+
+```sh
+cd app
+make llm-relay
+```
+
+Then use port **`8889`** (not `8888`) in **Settings → AI provider**. The relay forwards `http://<wsl>:8889` to `http://127.0.0.1:8888` on Windows and rewrites the `Host` header, which Unsloth Studio checks. If your LLM uses another port, run `make llm-relay LLM_TARGET_PORT=9000 LLM_RELAY_PORT=8889`.
+
+Alternatively, run Unsloth inside WSL2 (the Linux version) and start it on `0.0.0.0`; then no relay is needed.
 
 ## Stop, resume and update
 

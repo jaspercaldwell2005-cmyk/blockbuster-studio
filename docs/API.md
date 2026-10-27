@@ -23,8 +23,10 @@ Errors: non-2xx with an `ApiError` body `{ error: string, detail?: unknown }`.
 | GET | `/api/events` | Server-Sent Events stream of `ServerEvent` (`data: <json>\n\n`); `ping` every 15 s |
 | GET | `/api/agent-token` | → `AgentAccess` `{enabled, source: 'off'|'env'|'file', path?}` (never the token) |
 | POST | `/api/agent-token/rotate` | → `{ok:true}`; password session only (403 for the agent token); 409 when the token comes from `STUDIO_AGENT_TOKEN` or agent access is off |
-| GET | `/api/settings` | → `Settings` |
-| PUT | `/api/settings` | `SettingsUpdate` → `Settings` |
+| GET | `/api/settings` | → `Settings` (LLM provider, host/port/base URL/model, and `*Set` booleans for secrets) |
+| PUT | `/api/settings` | `SettingsUpdate` → `Settings`. Save `llmProvider`, `openaiHost`, `openaiPort`, `openaiBaseUrl`, `openaiModel`, or provider API keys |
+| POST | `/api/ai/models` | `{host?, port?, baseUrl?, apiKey?}` → `{baseUrl, models: string[]}`. Calls the OpenAI-compatible server's `GET /models`; omitted fields use saved Settings. Inside the studio container a loopback host (`127.0.0.1`, `localhost`) is rewritten to `host.docker.internal` in the returned `baseUrl` |
+| POST | `/api/ai/test` | `{host?, port?, baseUrl?, apiKey?, model}` → `{baseUrl, model, latencyMs, reply}`. Sends one tiny chat completion; 400 without an endpoint/model, 502 if unreachable |
 
 ## Storage & diagnostics
 
@@ -138,9 +140,12 @@ Engine semantics for `POST /api/generate`:
 | POST | `/api/shots/:id/line` | → 202 `Job` (record the line in its speaker's voice; a PATCH of `dialogue`, `dialogueSpeakerId` or `characterIds` queues this automatically) |
 | POST | `/api/shots/:id/select` | `{keyframeAssetId?} | {videoAssetId?} | {endKeyframeAssetId?: ID \| null}` → `Shot` (choose a candidate; `endKeyframeAssetId` sets or clears the clip's last frame, any image asset such as an uploaded previs render, so the clip renders in first/last-frame mode) |
 | POST | `/api/projects/:id/render` | `{what: 'keyframes'|'videos'|'all', onlyMissing?: true}` → 202 `Job[]` |
+| POST | `/api/projects/:id/autopilot` | `{script?}` → 202 `Job` (one prompt: AI breakdown → apply → a concept still per scene → every shot keyframe; stops before video/export). 400 if no AI provider or no script |
+| POST | `/api/scenes/:id/concept` | → 202 `Job` (`scene_concept`: renders the scene's establishing still and sets `Scene.conceptAssetId`; shot keyframes in that scene compose from it) |
 | POST | `/api/projects/:id/voices` | → 202 `{jobIds, voiceJobs, lineJobs, needsVoice[]}` (voices for speakers with a `voiceHint`, then every missing or stale line) |
 | POST | `/api/projects/:id/export` | → 202 `Job` (ffmpeg concat of shot videos in order → `exportAssetId`; each silent clip gets its shot's recorded line mixed in; a take longer than its shot's `durationSec` is cut to it) |
 | POST | `/api/projects/:id/storyboard?validate=1` | Storyboard plan (below) → `{ok, errors[], warnings[], previews[], estimate}`; `validate=1` writes nothing; without it the plan is appended (201, plus `project: ProjectDetail`). 422 lists every problem. `Idempotency-Key` header: a retry within 24 h returns the first result |
+| POST | `/api/projects/:id/script` | `{prompt}` → `Project` (LLM writes a full screenplay from a quick prompt and saves it as the project script; 400 if no AI provider or empty prompt) |
 | POST | `/api/projects/:id/breakdown` | `{script}` → `BreakdownDraft` (LLM; 400 if not configured) |
 | POST | `/api/projects/:id/breakdown/apply` | `BreakdownDraft` → `ProjectDetail` (creates missing characters/locations and appends scenes/shots with auto-placed cameras and blocking) |
 

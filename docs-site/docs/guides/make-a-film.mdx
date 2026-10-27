@@ -11,9 +11,28 @@ A film in Blockbuster Studio is a project made of **scenes**, and each scene is 
 Films need the video models, so the **Projects** page only appears once they're installed.
 :::
 
-**Start from a script** lets you write or paste your idea, then add the scenes and shots yourself, or have your AI agent plan them. For in-app script breakdown, set `ANTHROPIC_API_KEY` (or an `OPENAI_*` provider) as a pod variable — see [Settings and API keys](/manage/settings). You can also [build a film by hand](#build-a-film-by-hand).
+**Start from a script** lets you write or paste your idea, then add the scenes and shots yourself, or have your AI agent plan them. For in-app script breakdown, connect an AI in **Settings → AI provider** (Anthropic, or an OpenAI-compatible server such as Unsloth) — see [Settings and API keys](/manage/settings#ai-provider). You can also [build a film by hand](#build-a-film-by-hand).
 
 This page covers **Start from a script**: the studio picks each shot's camera and cuts for you. If the camera moves and cut timing need to be exact — or you want to try the same edit in a different visual style — bring a previs instead. See [Make a film with a previs](/guides/previs).
+
+## One prompt
+
+With an AI provider connected, **New film → One prompt** does the planning and the first pass for you. Describe the film once (a line or a treatment) and press **Make the film**. The studio:
+
+1. writes a full screenplay from the idea;
+2. breaks it into characters, locations, scenes and shots;
+3. draws one **scene still** for every scene — the cover that starts that scene on the storyboard, and the look its shots keep;
+4. draws every shot's **keyframe**.
+
+It stops before animating, so you can review the storyboard and frames, fix anything, then press **Animate** and **Export** yourself. You can remake any scene's still with **Remake still** on its cover card. The whole run is visible in the **Queue**.
+
+Everything below still applies; the one-prompt run simply fills in the storyboard and frames for you.
+
+## Quick prompt inside a project
+
+Open a film's **Script** tab. With an AI provider connected, the **Quick prompt** box turns a line or two into a full screenplay, and — on a film with no storyboard yet — plans the scenes and shots in the same step. The button says **Write script and storyboard**; untick **Plan the scenes and shots** if you only want the script.
+
+The generated screenplay lands in the editor below, where you can edit it before or after the scenes are planned. **Break down with AI** adds the edited script's scenes and shots to the storyboard. On the **Storyboard**, each scene's **Scene prompt** is editable too: it shapes that scene's still and its shots.
 
 <Steps>
   <Step title="Start a new film">
@@ -35,9 +54,9 @@ This page covers **Start from a script**: the studio picks each shot's camera an
   <Step title="Check the frames">
     ![A script film's storyboard with its first shot animated](/screenshots/script-film.png)
 
-    The **Storyboard** tab shows each scene and its shots. Frames appear as they finish.
+    The **Storyboard** tab shows each scene and its shots. Each scene starts with its **scene still** (a cover image), then its shots. Frames appear as they finish.
 
-    Before drawing the shots, the studio makes reference images for every character and an establishing shot for every location. It uses these for every shot, so the same character looks the same throughout the film.
+    Before drawing the shots, the studio makes reference images for every character and an establishing shot for every location. It uses these for every shot, so the same character looks the same throughout the film. Shot keyframes compose from the scene still, so the place and light stay consistent within a scene too.
 
     If you unchecked **Draw the frames now**, or added shots later, click **Generate frames** at the top of the page. The button shows how many shots still need a frame, for example *Generate 12 frames*, and only draws those.
 
@@ -97,6 +116,7 @@ When you export, each recorded line is mixed into its shot. Clips that already h
 On the **Storyboard** tab:
 
 - Drag scenes and shots to reorder them.
+- Edit each scene's **Scene prompt** under its header: a short description of what happens there, used for its still and shots. Click the scene title to rename it.
 - Set each scene's **location** and **time of day** (dawn, day, golden hour, dusk or night).
 - Click **Blocking** to place characters on the location's map. Select a character and press <kbd>R</kbd> to turn them, or use the turn buttons.
 - Click **Shot** in a scene's header to add a shot, or **Add scene** at the bottom.

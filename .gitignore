@@ -8,3 +8,6 @@ runpod/.template-id
 __pycache__/
 *.pyc
 .vercel/
+
+# Headless overflow-audit screenshots
+.overflow/
