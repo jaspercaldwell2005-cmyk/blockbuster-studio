@@ -671,3 +671,12 @@ export interface Diagnostics {
   /** Whole seconds from podStartedAt to each milestone; null when either is missing. */
   durations: Record<keyof Milestones, number | null>;
 }
+
+/** Disk usage shown in Settings → Storage. Sizes are bytes on disk. */
+export interface StorageUsage {
+  /** Generated images, clips and exported films (every asset except uploads). */
+  output: { assets: number; bytes: number };
+  /** Generated files safe to remove: not favorited and not used by a project, cast, location or LoRA. */
+  unused: { assets: number; bytes: number };
+  logs: { files: number; bytes: number };
+}

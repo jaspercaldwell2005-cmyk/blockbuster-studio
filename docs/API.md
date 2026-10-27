@@ -26,6 +26,16 @@ Errors: non-2xx with an `ApiError` body `{ error: string, detail?: unknown }`.
 | GET | `/api/settings` | → `Settings` |
 | PUT | `/api/settings` | `SettingsUpdate` → `Settings` |
 
+## Storage & diagnostics
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/storage` | → `StorageUsage` `{output, unused, logs}` in bytes |
+| DELETE | `/api/storage/output` | → `{ok:true, deleted, bytes}`. Removes generated assets that are not favorites and that no project, storyboard, cast, location or LoRA references. Files and thumbnails are deleted. Password session only (403 with an agent token) |
+| DELETE | `/api/storage/logs` | → `{ok:true, files, bytes}`. Truncates every `*.log` under `DATA_DIR/logs`; running services keep writing to the same files. Password session only |
+| GET | `/api/diagnostics` | → milestone timings (`Diagnostics`) |
+| GET | `/api/diagnostics/logs` | → `application/zip` of the service logs, milestone/model/GPU status and system info (no passwords, keys or database) |
+
 ## Media & assets
 
 | Method | Path | Body → Response |
@@ -49,6 +59,8 @@ Errors: non-2xx with an `ApiError` body `{ error: string, detail?: unknown }`.
 | GET | `/api/jobs?ids=a,b,c&wait=<s>` | → those `Job[]`; with `wait`, holds until all are finished or `min(s, 50)` seconds pass |
 | GET | `/api/jobs/:id?wait=<s>` | → `Job`; with `wait`, holds until it is finished or `min(s, 50)` seconds pass (Runpod's proxy cuts requests at 100 s) |
 | POST | `/api/jobs/:id/cancel` | → `Job` (queued: removed; running: ComfyUI interrupt, and the job ends even if ComfyUI never answers) |
+| POST | `/api/jobs/cancel-queued` | → `{ok:true, canceled}`: cancels every queued (not running) job; they move to Recent as canceled |
+| DELETE | `/api/jobs/recent` | → `{ok:true, deleted}`: deletes finished history (done, error, canceled). Queued/running jobs and their images/videos are untouched |
 | POST | `/api/jobs/:id/retry` | → 202 new `Job` with the same params |
 
 Every route that queues work answers 202 with the job(s), each with `statusUrl` (`/api/jobs/:id?wait=50`).

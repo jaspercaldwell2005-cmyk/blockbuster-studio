@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { jobs as jobsRepo } from '../db';
-import { cancel, enqueue, retry } from '../pipeline/queue';
+import { cancel, cancelQueued, enqueue, retry } from '../pipeline/queue';
 import { enhancePrompt } from '../ai/breakdown';
 import type { GenerateRequest } from '../../shared/types';
 import { aspectError } from '../../shared/presets';
@@ -60,6 +60,13 @@ jobsRoutes.post('/api/jobs/:id/cancel', (c) => {
   if (!job) return c.json({ error: 'not found' }, 404);
   return c.json(job);
 });
+
+// Clear queue: cancel every waiting job (the running one keeps its own Cancel button). They stay in
+// Recent as canceled until the history is cleared.
+jobsRoutes.post('/api/jobs/cancel-queued', (c) => c.json({ ok: true, canceled: cancelQueued() }));
+
+// Clear recent: delete finished job rows (done, error, canceled). Their images and videos stay.
+jobsRoutes.delete('/api/jobs/recent', (c) => c.json({ ok: true, deleted: jobsRepo.deleteFinished() }));
 
 jobsRoutes.post('/api/jobs/:id/retry', (c) => {
   const job = retry(c.req.param('id'));

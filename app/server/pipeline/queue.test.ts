@@ -8,7 +8,7 @@ import os from 'node:os';
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bb-queue-test-'));
 process.env.DATA_DIR = tmpDir;
 
-const { registerRunner, enqueue, cancel, init, LOADING_MODELS_STAGE } = await import('./queue');
+const { registerRunner, enqueue, cancel, cancelQueued, init, LOADING_MODELS_STAGE } = await import('./queue');
 const { jobs: jobsRepo } = await import('../db');
 
 class FakeComfy {
@@ -95,6 +95,33 @@ describe('queue', () => {
     expect(jobsRepo.get(queued.id)?.status).toBe('canceled');
     // Clean up: cancel the blocker too so it doesn't leak into other tests.
     cancel(blocker.id);
+  });
+
+  it('cancels every queued job but leaves the running one alone', async () => {
+    let release: () => void = () => {};
+    registerRunner('lora_train', async () => {
+      await new Promise<void>((resolve) => (release = resolve));
+    });
+    const running = enqueue({ type: 'lora_train', title: 'running', params: {} });
+    await vi.waitFor(() => expect(jobsRepo.get(running.id)?.status).toBe('running'));
+    const a = enqueue({ type: 'lora_train', title: 'queued a', params: {} });
+    const b = enqueue({ type: 'lora_train', title: 'queued b', params: {} });
+
+    expect(cancelQueued()).toBe(2);
+    expect(jobsRepo.get(a.id)?.status).toBe('canceled');
+    expect(jobsRepo.get(b.id)?.status).toBe('canceled');
+    expect(jobsRepo.get(running.id)?.status).toBe('running');
+
+    cancel(running.id);
+    release();
+    await vi.waitFor(() => expect(jobsRepo.get(running.id)?.status).toBe('canceled'));
+  });
+
+  it('deletes finished history without touching active jobs', async () => {
+    const history = jobsRepo.create({ type: 'generate', title: 'old history', params: {}, status: 'done', outputAssetIds: [] });
+    const deleted = jobsRepo.deleteFinished();
+    expect(deleted).toBeGreaterThanOrEqual(1);
+    expect(jobsRepo.get(history.id)).toBeUndefined();
   });
 
   it('interrupts comfy and marks a running job canceled', async () => {

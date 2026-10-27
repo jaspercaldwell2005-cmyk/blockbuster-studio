@@ -59,19 +59,60 @@ doing. Model download logs also live inside the data folder, under `studio/logs/
 |---|---|
 | `make container-check` | Check `nvidia-smi` on the host and that Docker can see the GPU |
 | `make container-pull` | Pull `docker.io/kiloloco/blockbuster-studio:latest` |
-| `make container-up` | Create or recreate the container; pulls the image first |
+| `make container-up` | Create or recreate the container; pulls the image if it isn't local |
+| `make container-dev` | Recreate it with this checkout's `dist/web` mounted, so frontend edits need no image rebuild |
 | `make container-start` | Resume a stopped container (no model re-download) |
 | `make container-stop` | Stop the container; keeps models, films and password |
 | `make container-restart` | Restart it (reopens the 15-minute setup window if unclaimed) |
 | `make container-logs` | Follow the container log |
 | `make container-shell` | Open a shell inside the container |
 | `make container-status` | Show whether it is running and which ports are mapped |
+| `make open` | Open the running studio in your browser (uses its actual port) |
 | `make container-update` | Pull the latest image and recreate the container |
 | `make container-remove` | Delete the container (the data folder is kept) |
 
 `make container-up` recreates the container, but your data lives on a host folder, so models,
 projects and password survive. Only `make container-remove` without that folder, or deleting the
 folder yourself, loses anything.
+
+### Change the frontend without rebuilding the image
+
+The image serves the web app from `/opt/studio/dist/web`. You can bind-mount this checkout's build
+over it, so a frontend edit shows up in the same container (same GPU, same database, same URL)
+without a `docker build`:
+
+```sh
+make build-web          # once, so dist/web exists
+make container-dev      # recreate the container with dist/web mounted read-only
+make dev-web-watch      # in a second terminal: rebuilds dist/web on every save
+```
+
+With `dev-web-watch` running, saving a file under `web/src` rebuilds in well under a second; refresh
+the browser (the filename hashes change, so the page needs a reload). `make open` opens the studio
+using whichever port the container publishes — no need to remember it. Server code still comes from
+the image — run `make build && docker build -t blockbuster-studio:local -f docker/Dockerfile .`
+from the repo root and `make container-dev IMAGE=blockbuster-studio:local` when you change `server/`.
+
+If you'd rather have real hot-module reload (page updates without refreshing), skip
+`container-dev` and point Vite at the running container instead:
+
+```sh
+make dev-web-container  # http://localhost:5174, /api proxied to the container on STUDIO_PORT
+```
+
+Both work with a published image or your own build. **Port 3000 by default**, and you don't have to
+worry about it being busy: `make container-up` / `make container-dev` reuse the port the existing
+container already publishes, and when there is no container yet they pick the first free port at or
+above 3000 (printing which one). Passing `STUDIO_PORT` explicitly is still honoured, and then a busy
+port is an error:
+
+```sh
+make container-dev STUDIO_PORT=3001   # always 3001 (fails if taken)
+```
+
+A failed start (busy port, GPU error) leaves your previous container running: the replacement is
+created under a temporary name first and only swapped in once it starts.
+
 
 ### Where your data lives
 
@@ -169,6 +210,8 @@ the API without CORS setup.
 | `make dev-tts` | Run only the mock voice sidecar (port 8190) |
 | `make dev-server` | Run only the API server under `tsx watch` (port 3000) |
 | `make dev-web` | Run only the Vite web app (port 5173) |
+| `make dev-web-watch` | Rebuild `dist/web` on every save (for `make container-dev`) |
+| `make dev-web-container` | Vite with HMR on port 5174, proxying `/api` to the studio container |
 | `make test` | Run the test suite once (`vitest run`) |
 | `make typecheck` | Type-check with `tsc --noEmit` |
 | `make check` | `typecheck` + `test` — what to run before opening a PR |
@@ -186,8 +229,9 @@ MOCK_COMFY_PORT=8288 make dev-mock
 PORT=4000 make dev-server
 ```
 
-The web dev server proxy still points at port 3000; if you change `PORT`, update
-`vite.config.ts` to match.
+The web dev server proxy points at port 3000 by default. If you change `PORT`, set
+`VITE_PROXY_TARGET=http://127.0.0.1:<port>` when starting `make dev-web` (it also accepts anything
+else serving the API, such as a studio container).
 
 ### Running processes individually
 

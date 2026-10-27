@@ -121,6 +121,13 @@ export function cancel(id: ID): Job | undefined {
   return job;
 }
 
+/** Cancel every queued (not running) job. Returns how many were canceled. */
+export function cancelQueued(): number {
+  const queued = jobsRepo.list({ active: true }).filter((job) => job.status === 'queued');
+  for (const job of queued) cancel(job.id);
+  return queued.length;
+}
+
 export function retry(id: ID): Job | undefined {
   const job = jobsRepo.get(id);
   if (!job) return undefined;

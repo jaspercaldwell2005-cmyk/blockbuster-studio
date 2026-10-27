@@ -14,6 +14,7 @@
     "dev:web": "vite",
     "build": "npm run build:web && npm run build:server",
     "build:web": "vite build",
+    "build:web:watch": "vite build --watch",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist/server.js",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",

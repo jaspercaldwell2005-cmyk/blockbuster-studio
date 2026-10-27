@@ -30,6 +30,13 @@ Shows how long each step of setup took on this pod — studio ready, video model
 
 **Download logs** saves a file with the studio's logs, model and GPU status, and this setup timeline. It has no passwords, keys or other secrets, so it's safe to attach to a bug report.
 
+## Storage
+
+Shows how much disk the studio's generated files and service logs use.
+
+- **Delete unused output** removes generated images and clips that no project, cast, location or LoRA uses. Favorites and anything still used in a film are kept, so this is the safe way to free space. To delete a specific item instead, open it on the **Create** page and choose **Delete**, or select several items and use **Delete** in the selection bar.
+- **Delete logs** clears the server, ComfyUI, voice and model-download logs. Download them first if you're reporting a problem. New logs start from empty.
+
 ## Sign out
 
 The **Sign out** button is at the top of the Settings page. Sessions otherwise last 30 days.

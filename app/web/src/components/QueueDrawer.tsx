@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { X, RotateCw, Ban } from 'lucide-react';
+import { X, RotateCw, Ban, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useUIStore } from '../lib/store';
 import { toast } from '../lib/store';
@@ -15,6 +15,7 @@ export function QueueDrawer() {
   if (!queueOpen) return null;
 
   const active = jobs.filter((j) => j.status === 'queued' || j.status === 'running');
+  const queued = active.filter((j) => j.status === 'queued');
   const recent = jobs.filter((j) => j.status !== 'queued' && j.status !== 'running').slice(0, 20);
 
   async function cancel(id: string) {
@@ -23,6 +24,27 @@ export function QueueDrawer() {
       qc.invalidateQueries({ queryKey: ['jobs'] });
     } catch {
       toast({ title: 'Could not cancel job', variant: 'error' });
+    }
+  }
+  async function clearQueued() {
+    if (!queued.length) return;
+    if (!window.confirm(`Cancel all ${queued.length} queued job${queued.length === 1 ? '' : 's'}? The running job keeps going; canceled jobs move to Recent.`)) return;
+    try {
+      const res = await api.cancelQueuedJobs();
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      toast({ title: `Canceled ${res.canceled} queued job${res.canceled === 1 ? '' : 's'}`, variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Could not clear the queue', description: err instanceof Error ? err.message : undefined, variant: 'error' });
+    }
+  }
+  async function clearRecent() {
+    if (!window.confirm('Delete finished jobs from the queue history? Their images and videos stay in the gallery.')) return;
+    try {
+      const res = await api.clearRecentJobs();
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      toast({ title: `Cleared ${res.deleted} finished job${res.deleted === 1 ? '' : 's'}`, variant: 'success' });
+    } catch (err) {
+      toast({ title: 'Could not clear recent jobs', description: err instanceof Error ? err.message : undefined, variant: 'error' });
     }
   }
   async function retry(id: string) {
@@ -45,7 +67,17 @@ export function QueueDrawer() {
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-3">
           <section>
-            <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--color-ink-3)]">Active</h3>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink-3)]">Active</h3>
+              {queued.length > 0 && (
+                <button
+                  onClick={() => void clearQueued()}
+                  className="inline-flex items-center gap-1 text-xs text-[var(--color-ink-2)] hover:text-[var(--color-danger)]"
+                >
+                  <Trash2 className="size-3" /> Clear queued ({queued.length})
+                </button>
+              )}
+            </div>
             {active.length === 0 && <p className="text-sm text-[var(--color-ink-2)]">Nothing running.</p>}
             <div className="flex flex-col gap-2">
               {active.map((j) => (
@@ -54,7 +86,18 @@ export function QueueDrawer() {
             </div>
           </section>
           <section className="mt-6">
-            <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--color-ink-3)]">Recent</h3>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-[var(--color-ink-3)]">Recent</h3>
+              {recent.length > 0 && (
+                <button
+                  onClick={() => void clearRecent()}
+                  className="inline-flex items-center gap-1 text-xs text-[var(--color-ink-2)] hover:text-[var(--color-danger)]"
+                >
+                  <Trash2 className="size-3" /> Clear recent
+                </button>
+              )}
+            </div>
+            {recent.length === 0 && <p className="text-sm text-[var(--color-ink-2)]">Nothing finished yet.</p>}
             <div className="flex flex-col gap-2">
               {recent.map((j) => (
                 <JobRow key={j.id} job={j} onRetry={j.status === 'error' ? () => retry(j.id) : undefined} />

@@ -13,6 +13,7 @@ import { libraryRoutes } from './routes/library';
 import { jobsRoutes } from './routes/jobs';
 import { systemRoutes } from './routes/system';
 import { diagnosticsRoutes } from './routes/diagnostics';
+import { storageRoutes } from './routes/storage';
 import { projectsRoutes } from './routes/projects';
 import { mcpRoutes } from './mcp';
 import { openApiRoutes } from './openapi';
@@ -60,14 +61,24 @@ app.route('/', libraryRoutes);
 app.route('/', jobsRoutes);
 app.route('/', systemRoutes(comfy));
 app.route('/', diagnosticsRoutes(comfy));
+app.route('/', storageRoutes());
 app.route('/', projectsRoutes(comfy));
 app.route('/', openApiRoutes);
 app.route('/', mcpRoutes(comfy, (p, init) => Promise.resolve(app.request(p, init))));
 
 // Static SPA (only if the web build exists — lets the server run standalone before `npm run build:web`).
 if (fs.existsSync(WEB_DIST)) {
+  // index.html must be revalidated on every load: a rebuild renames the hashed bundle, and a cached
+  // index.html would ask for a file that no longer exists. Hashed assets keep their default caching.
+  app.use('/*', async (c, next) => {
+    await next();
+    if (c.res.headers.get('content-type')?.includes('text/html')) c.header('Cache-Control', 'no-cache');
+  });
   app.use('/*', serveStatic({ root: path.relative(process.cwd(), WEB_DIST) || '.' }));
   app.get('*', async (c) => {
+    // A missing file (an old bundle name, a typo) is a 404, not index.html: answering a .js request
+    // with HTML leaves the browser showing a blank page and a MIME-type error.
+    if (path.extname(c.req.path)) return c.notFound();
     const indexPath = path.join(WEB_DIST, 'index.html');
     if (!fs.existsSync(indexPath)) return c.notFound();
     return c.html(fs.readFileSync(indexPath, 'utf8'));

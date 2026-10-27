@@ -322,6 +322,9 @@ export const assets = {
   delete(id: ID) {
     db.prepare('DELETE FROM assets WHERE id = ?').run(id);
   },
+  listAll(): Asset[] {
+    return db.prepare('SELECT * FROM assets ORDER BY createdAt DESC').all().map(rowToAsset);
+  },
   listImagesWithoutThumb(limit = 500): Asset[] {
     return db.prepare("SELECT * FROM assets WHERE kind = 'image' AND thumb IS NULL LIMIT ?").all(limit).map(rowToAsset);
   },
@@ -454,6 +457,10 @@ export const jobs = {
   listByStatus(status: string): Job[] {
     const rows = db.prepare(`SELECT * FROM jobs WHERE status = ? ORDER BY createdAt ASC`).all(status) as any[];
     return rows.map(rowToJob);
+  },
+  /** Remove finished history (done, error, canceled) without touching queued or running work. */
+  deleteFinished(): number {
+    return db.prepare("DELETE FROM jobs WHERE status IN ('done','error','canceled')").run().changes;
   },
 };
 

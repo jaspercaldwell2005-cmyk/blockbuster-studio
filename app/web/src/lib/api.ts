@@ -21,6 +21,7 @@ import type {
   Settings,
   SettingsUpdate,
   Shot,
+  StorageUsage,
   Style,
   SystemInfo,
   AngleSpec,
@@ -93,6 +94,9 @@ export const api = {
   updateSettings: (body: SettingsUpdate) => request<Settings>('PUT', '/api/settings', body),
   diagnostics: () => request<Diagnostics>('GET', '/api/diagnostics'),
   diagnosticsLogsUrl: '/api/diagnostics/logs',
+  storage: () => request<StorageUsage>('GET', '/api/storage'),
+  deleteUnusedOutput: () => request<{ ok: true; deleted: number; bytes: number }>('DELETE', '/api/storage/output'),
+  deleteLogs: () => request<{ ok: true; files: number; bytes: number }>('DELETE', '/api/storage/logs'),
 
   // Media & assets
   upload: (file: File, projectId?: ID) => {
@@ -117,6 +121,8 @@ export const api = {
     request<Job[]>('GET', `/api/jobs${qs({ active: params.active ? 1 : undefined, limit: params.limit })}`),
   job: (id: ID) => request<Job>('GET', `/api/jobs/${id}`),
   cancelJob: (id: ID) => request<Job>('POST', `/api/jobs/${id}/cancel`),
+  cancelQueuedJobs: () => request<{ ok: true; canceled: number }>('POST', '/api/jobs/cancel-queued'),
+  clearRecentJobs: () => request<{ ok: true; deleted: number }>('DELETE', '/api/jobs/recent'),
   retryJob: (id: ID) => request<Job>('POST', `/api/jobs/${id}/retry`),
   enhance: (prompt: string, target: 'image' | 'video') => request<{ prompt: string }>('POST', '/api/ai/enhance', { prompt, target }),
 

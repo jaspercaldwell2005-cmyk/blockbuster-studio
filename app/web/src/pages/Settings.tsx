@@ -11,6 +11,7 @@ import { DOCS_URL } from '../lib/links';
 import { GatedTokenField } from '../components/GatedTokenField';
 import { gatedRepoFor } from '../components/VideoSetup';
 import { Diagnostics } from '../components/Diagnostics';
+import { Storage } from '../components/Storage';
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
@@ -271,6 +272,8 @@ export default function SettingsPage() {
         </section>
 
         <Diagnostics />
+
+        <Storage />
 
         <div className="flex items-center justify-between text-xs text-[var(--color-ink-3)]">
           <span>Blockbuster Studio</span>
